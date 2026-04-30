@@ -1,0 +1,81 @@
+name: Inventory
+
+on:
+  schedule:
+    # Nightly at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    # Allow manual triggering
+    inputs:
+      orgs:
+        description: 'Comma-separated list of organizations to inventory'
+        required: false
+        default: 'SchwarzDigits,SchwarzIT'
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    name: Run inventory and publish to oss-inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout oss-tooling
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Build osstool
+        run: make build
+
+      - name: Run inventory
+        env:
+          GITHUB_TOKEN: ${{ secrets.OSS_TOOLING_TOKEN }}
+        run: |
+          ORGS="${{ inputs.orgs || 'SchwarzDigits,SchwarzIT' }}"
+          ./bin/osstool inventory run --orgs "$ORGS" --output ./output
+
+      - name: Generate report
+        run: ./bin/osstool inventory report --input ./output/latest --output ./output/summary.md
+
+      - name: Checkout oss-inventory
+        uses: actions/checkout@v4
+        with:
+          repository: SchwarzDigits/oss-inventory
+          token: ${{ secrets.OSS_TOOLING_TOKEN }}
+          path: oss-inventory
+
+      - name: Sync inventory data
+        run: |
+          # Copy date-stamped data and latest snapshot
+          mkdir -p oss-inventory/data oss-inventory/reports
+          cp -R output/[0-9]* oss-inventory/data/ 2>/dev/null || true
+          rm -rf oss-inventory/data/latest
+          cp -R output/latest oss-inventory/data/latest
+
+          # Copy generated report with date stamp
+          DATE=$(date -u +%Y-%m-%d)
+          cp output/summary.md "oss-inventory/reports/${DATE}-summary.md"
+
+      - name: Commit and push to oss-inventory
+        working-directory: oss-inventory
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add .
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          DATE=$(date -u +%Y-%m-%d)
+          git commit -m "chore: inventory snapshot ${DATE}"
+          git push
