@@ -1,0 +1,86 @@
+# OSS Inventory Report
+
+_Generated {{ .GeneratedAt.Format "2006-01-02 15:04:05 UTC" }} from `{{ .InputDir }}`._
+
+## Per-organization totals
+
+| Organization | Repositories | With license | Missing license | Stale (no commits 365d) | Uses compliance workflow |
+|---|---:|---:|---:|---:|---:|
+{{- range .Orgs }}
+| {{ .Name }} | {{ .Total }} | {{ .WithLicense }} | {{ .MissingLicense }} | {{ .Stale }} | {{ .UsesCompliance }} |
+{{- end }}
+| **All** | **{{ .Totals.Total }}** | **{{ .Totals.WithLicense }}** | **{{ .Totals.MissingLicense }}** | **{{ .Totals.Stale }}** | **{{ .Totals.UsesCompliance }}** |
+
+## Repositories missing a LICENSE
+
+{{ if .MissingLicense -}}
+| Org | Repository | URL |
+|---|---|---|
+{{- range .MissingLicense }}
+| {{ .Org }} | {{ .Name }} | {{ .URL }} |
+{{- end }}
+{{- else -}}
+_None._
+{{- end }}
+
+## Repositories missing a local SECURITY.md
+
+_Informational: a project-level SECURITY.md may be supplied by the org's `.github` repository, which this report does not inspect._
+
+{{ if .MissingSecurity -}}
+| Org | Repository | URL |
+|---|---|---|
+{{- range .MissingSecurity }}
+| {{ .Org }} | {{ .Name }} | {{ .URL }} |
+{{- end }}
+{{- else -}}
+_None._
+{{- end }}
+
+## Stale repositories (no commits in last 365 days)
+
+{{ if .Stale -}}
+| Org | Repository | Last push |
+|---|---|---|
+{{- range .Stale }}
+| {{ .Org }} | {{ .Name }} | {{ .PushedAt.Format "2006-01-02" }} |
+{{- end }}
+{{- else -}}
+_None._
+{{- end }}
+
+## Repositories using the central compliance workflow
+
+{{ if .UsesCompliance -}}
+| Org | Repository |
+|---|---|
+{{- range .UsesCompliance }}
+| {{ .Org }} | {{ .Name }} |
+{{- end }}
+{{- else -}}
+_None._
+{{- end }}
+
+## Primary languages
+
+{{ if .Languages -}}
+| Language | Repositories |
+|---|---:|
+{{- range .Languages }}
+| {{ .Name }} | {{ .Count }} |
+{{- end }}
+{{- else -}}
+_No languages detected._
+{{- end }}
+
+## Top 20 most-starred repositories
+
+{{ if .TopStars -}}
+| Org | Repository | Stars | Forks |
+|---|---|---:|---:|
+{{- range .TopStars }}
+| {{ .Org }} | {{ .Name }} | {{ .Stars }} | {{ .Forks }} |
+{{- end }}
+{{- else -}}
+_No repositories._
+{{- end }}

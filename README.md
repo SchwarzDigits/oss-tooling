@@ -5,7 +5,7 @@ Tooling for the Schwarz Digits open-source compliance program.
 This repository contains the command-line tools and GitHub Actions workflows
 that we use to maintain transparency, license compliance, and security
 hygiene across our open-source organizations on GitHub
-(`SchwarzDigits`, `SchwarzIT`, `stackitcloud`).
+(`SchwarzDigits`, `SchwarzIT`).
 
 ## Status
 
@@ -25,13 +25,44 @@ More components will be added over time.
 
 ## Usage
 
-The tool is primarily run via the GitHub Actions workflows defined under
-`.github/workflows/`. Local execution is supported for development.
+The tool is intended to run via GitHub Actions for production runs and
+locally for development. Local execution requires Go 1.23+ and a GitHub
+personal access token in `GITHUB_TOKEN`.
 
 ```bash
-go build -o osstool ./cmd/osstool
-./osstool inventory --orgs SchwarzDigits,SchwarzIT,stackitcloud
+make build
+export GITHUB_TOKEN=ghp_xxx
+
+# Collect repositories from one or more orgs into ./output
+./bin/osstool inventory run --orgs SchwarzDigits,SchwarzIT
+
+# Generate a Markdown summary from the latest output
+./bin/osstool inventory report
 ```
+
+Output layout:
+
+```
+output/
+├── 2026-04-30/
+│   ├── SchwarzDigits.json
+│   └── SchwarzIT.json
+└── latest/
+    ├── SchwarzDigits.json
+    └── SchwarzIT.json
+output/summary.md   # produced by `inventory report`
+```
+
+### Make targets
+
+| Target | Description |
+|---|---|
+| `make build` | Build the binary at `./bin/osstool` |
+| `make test` | Run the Go test suite |
+| `make vet` | Run `go vet ./...` |
+| `make lint` | Run `golangci-lint run` (requires golangci-lint installed locally) |
+| `make run-inventory` | Convenience wrapper around `inventory run` with default orgs |
+| `make clean` | Remove `bin/` and `output/` |
 
 ## Contributing
 
