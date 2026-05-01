@@ -59,6 +59,15 @@ type Repository struct {
 	Manifests []string `json:"manifests"`
 
 	CollectedAt time.Time `json:"collected_at"`
+
+	LastComplianceRunAt         time.Time `json:"last_compliance_run_at,omitempty"`
+	LastComplianceRunStatus     string    `json:"last_compliance_run_status,omitempty"`
+	LastComplianceRunConclusion string    `json:"last_compliance_run_conclusion,omitempty"`
+	LastComplianceRunURL        string    `json:"last_compliance_run_url,omitempty"`
+	LastComplianceRunFailedJobs []string  `json:"last_compliance_run_failed_jobs,omitempty"`
+
+	LikelyOwner       string `json:"likely_owner,omitempty"`
+	LikelyOwnerSource string `json:"likely_owner_source,omitempty"`
 }
 
 // OrgInventory is the on-disk wrapper for a single org's collected data.

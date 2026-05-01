@@ -2,6 +2,7 @@ package inventory
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"time"
 
@@ -9,6 +10,15 @@ import (
 
 	gh "github.com/SchwarzDigits/oss-tooling/internal/github"
 )
+
+// complianceWorkflowRE matches a `uses:` directive that calls the central
+// reusable workflow at SchwarzDigits/oss-compliance/.github/workflows/<file>.
+// We match the full path, not just the org/repo, so that the oss-compliance
+// repo itself — which references its own internal workflows via relative
+// paths (`uses: ./.github/workflows/...`) — is not wrongly flagged as an
+// adopter of itself.
+var complianceWorkflowRE = regexp.MustCompile(
+	`(?m)^\s*uses:\s*SchwarzDigits/oss-compliance/\.github/workflows/`)
 
 // Manifests we recognize at the repository root. Case-sensitive — these are
 // the canonical filenames.
@@ -93,6 +103,8 @@ func translateNode(n gh.OrgRepoNode, org string, now time.Time) Repository {
 		IsFork:        n.IsFork,
 		URL:           n.URL,
 		DefaultBranch: n.DefaultBranchRef.Name,
+		// PrimaryLang is GitHub Linguist's classification (from the GraphQL
+		// primaryLanguage field), not something this tool computes.
 		PrimaryLang:   n.PrimaryLanguage.Name,
 		CreatedAt:     n.CreatedAt.Time,
 		UpdatedAt:     n.UpdatedAt.Time,
@@ -152,7 +164,7 @@ func translateNode(n gh.OrgRepoNode, org string, now time.Time) Repository {
 	for _, e := range n.Workflows.Tree.Entries {
 		r.WorkflowFiles = append(r.WorkflowFiles, e.Name)
 		if !e.Object.Blob.IsBinary && e.Object.Blob.Text != "" {
-			if strings.Contains(e.Object.Blob.Text, "SchwarzDigits/oss-compliance") {
+			if complianceWorkflowRE.MatchString(e.Object.Blob.Text) {
 				r.UsesComplianceWorkflow = true
 			}
 		}
