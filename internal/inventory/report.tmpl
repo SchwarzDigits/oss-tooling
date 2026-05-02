@@ -2,6 +2,20 @@
 
 _Generated {{ .GeneratedAt.Format "2006-01-02 15:04:05 UTC" }} from `{{ .InputDir }}`._
 
+**Status:**
+- Compliance adoption: **{{ .StatusComplianceAdoption }}**{{ if .HasDiff }} — vs. previous: {{ .StatusComplianceDelta }}{{ end }}
+- License compliance: **{{ .StatusLicense }}**{{ if .HasDiff }} — vs. previous: {{ .StatusLicenseDelta }}{{ end }}
+- Failing compliance runs: **{{ .StatusFailingRuns }}**
+{{- if .HasDiff }}
+- New repos since previous snapshot: **{{ .StatusNewSincePrev }}**
+- Archived since previous snapshot: **{{ .StatusArchivedSincePrev }}**
+{{- end }}
+
+{{ if .HasDiff }}## Changes since previous snapshot
+
+{{ .DiffMarkdown }}
+{{ end -}}
+
 ## Per-organization totals
 
 | Organization | Repositories | With license | Missing license | Stale (no commits 365d) | Uses compliance workflow |
@@ -11,51 +25,65 @@ _Generated {{ .GeneratedAt.Format "2006-01-02 15:04:05 UTC" }} from `{{ .InputDi
 {{- end }}
 | **All** | **{{ .Totals.Total }}** | **{{ .Totals.WithLicense }}** | **{{ .Totals.MissingLicense }}** | **{{ .Totals.Stale }}** | **{{ .Totals.UsesCompliance }}** |
 
-## Repositories missing a LICENSE
+## Compliance status
 
-{{ if .MissingLicense -}}
-| Org | Repository | URL |
-|---|---|---|
-{{- range .MissingLicense }}
-| {{ .Org }} | {{ .Name }} | {{ .URL }} |
+{{ if .Compliance -}}
+| Repo | Last run | Status | Failed jobs |
+|---|---|---|---|
+{{- range .Compliance }}
+| [{{ .FullName }}]({{ .URL }}) | {{ .LastRunRel }} | {{ .StatusEmoji }} | {{ .FailedJobs }} |
+{{- end }}
+
+{{ .ComplianceCount }} repos use the central compliance workflow — {{ .ComplianceGreen }} green, {{ .ComplianceFailing }} failing, {{ .ComplianceRunning }} running, {{ .ComplianceNeverRun }} never run.
+{{- else -}}
+_No repositories use the central compliance workflow._
+{{- end }}
+
+## Action: Public repos missing a LICENSE
+
+{{ if .MissingLicensePublic -}}
+| Org | Repository | Last push | Likely owner |
+|---|---|---|---|
+{{- range .MissingLicensePublic }}
+| {{ .Org }} | [{{ .Name }}]({{ .URL }}) | {{ .PushedAt.Format "2006-01-02" }} | {{ .OwnerLabel }} |
 {{- end }}
 {{- else -}}
 _None._
 {{- end }}
 
-## Repositories missing a local SECURITY.md
+## Migration backlog: repos without the central compliance workflow
 
-_Informational: a project-level SECURITY.md may be supplied by the org's `.github` repository, which this report does not inspect._
+{{ if .MigrationBacklog -}}
+| Org | Repository | Stars | Last push | Likely owner |
+|---|---|---:|---|---|
+{{- range .MigrationBacklog }}
+| {{ .Org }} | [{{ .Name }}]({{ .URL }}) | {{ .Stars }} | {{ .PushedAt.Format "2006-01-02" }} | {{ .OwnerLabel }} |
+{{- end }}
 
-{{ if .MissingSecurity -}}
-| Org | Repository | URL |
-|---|---|---|
-{{- range .MissingSecurity }}
-| {{ .Org }} | {{ .Name }} | {{ .URL }} |
+{{ .MigrationExcluded }} additional repos are excluded because they are stale or archived — see "Archive candidates" below.
+{{- else -}}
+_None._
+{{- end }}
+
+## Archive candidates
+
+{{ if .ArchiveCandidates -}}
+| Org | Repository | Stars | Forks | Last push | Hint |
+|---|---|---:|---:|---|---|
+{{- range .ArchiveCandidates }}
+| {{ .Org }} | [{{ .Name }}]({{ .URL }}) | {{ .Stars }} | {{ .Forks }} | {{ .PushedAt.Format "2006-01-02" }} | {{ .Hint }} |
 {{- end }}
 {{- else -}}
 _None._
 {{- end }}
 
-## Stale repositories (no commits in last 365 days)
+## Risk: top-starred repos without the central compliance workflow
 
-{{ if .Stale -}}
-| Org | Repository | Last push |
-|---|---|---|
-{{- range .Stale }}
-| {{ .Org }} | {{ .Name }} | {{ .PushedAt.Format "2006-01-02" }} |
-{{- end }}
-{{- else -}}
-_None._
-{{- end }}
-
-## Repositories using the central compliance workflow
-
-{{ if .UsesCompliance -}}
-| Org | Repository |
-|---|---|
-{{- range .UsesCompliance }}
-| {{ .Org }} | {{ .Name }} |
+{{ if .TopRiskNoCompliance -}}
+| Repo | Stars | Forks | Last push | Likely owner |
+|---|---:|---:|---|---|
+{{- range .TopRiskNoCompliance }}
+| [{{ .FullName }}]({{ .URL }}) | {{ .Stars }} | {{ .Forks }} | {{ .PushedAt.Format "2006-01-02" }} | {{ .OwnerLabel }} |
 {{- end }}
 {{- else -}}
 _None._

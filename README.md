@@ -38,6 +38,19 @@ export GITHUB_TOKEN=ghp_xxx
 
 # Generate a Markdown summary from the latest output
 ./bin/osstool inventory report
+
+# Generate a report that also calls out what changed since a previous
+# snapshot (file or directory of per-org JSON files):
+./bin/osstool inventory report \
+  --input ./output/latest \
+  --diff-from ./output/2026-04-30 \
+  --output ./output/summary.md
+
+# Compare two snapshots directly and emit a Markdown diff
+./bin/osstool inventory diff \
+  --from ./output/2026-04-30 \
+  --to ./output/latest \
+  --output ./output/diff.md
 ```
 
 Output layout:
@@ -52,6 +65,11 @@ output/
     └── SchwarzIT.json
 output/summary.md   # produced by `inventory report`
 ```
+
+The per-repo JSON schema gained fields for the latest compliance-workflow
+run (`last_compliance_run_*`) and a likely-owner hint (`likely_owner`,
+`likely_owner_source`). All new fields are additive and `omitempty`, so
+older snapshots remain readable; missing fields default to zero values.
 
 ### Make targets
 
