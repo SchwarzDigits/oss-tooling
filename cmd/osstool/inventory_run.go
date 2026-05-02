@@ -11,15 +11,17 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/SchwarzDigits/oss-tooling/internal/config"
 	gh "github.com/SchwarzDigits/oss-tooling/internal/github"
 	"github.com/SchwarzDigits/oss-tooling/internal/inventory"
 )
 
 type runFlags struct {
-	orgs        []string
-	output      string
-	concurrency int
-	exclude     []string
+	orgs           []string
+	output         string
+	concurrency    int
+	exclude        []string
+	excludesConfig string
 }
 
 func newInventoryRunCmd() *cobra.Command {
@@ -55,12 +57,15 @@ Requires the GITHUB_TOKEN environment variable.`,
 				return fmt.Errorf("github clients: %w", err)
 			}
 
+			excludes := config.LoadOrEmpty(f.excludesConfig, logger)
+
 			c := &inventory.Collector{
 				Clients:     clients,
 				Logger:      logger,
 				Concurrency: f.concurrency,
 				OutputDir:   f.output,
 				Exclude:     f.exclude,
+				IsExcluded:  excludes.IsExcluded,
 			}
 
 			start := time.Now()
@@ -90,6 +95,8 @@ Requires the GITHUB_TOKEN environment variable.`,
 	cmd.Flags().IntVar(&f.concurrency, "concurrency", 5, "number of repositories enriched in parallel (1..20)")
 	cmd.Flags().StringSliceVar(&f.exclude, "exclude", []string{".github"},
 		"comma-separated repository names to skip (case-insensitive, matches Name not full_name)")
+	cmd.Flags().StringVar(&f.excludesConfig, "excludes-config", "config/inventory-excludes.yml",
+		"path to YAML excludes file (org/name and */name patterns); missing file is logged and ignored")
 	_ = cmd.MarkFlagRequired("orgs")
 	return cmd
 }

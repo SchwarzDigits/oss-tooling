@@ -23,7 +23,11 @@ type Collector struct {
 	// Exclude is a list of repository names (not full names) to skip.
 	// Comparison is case-insensitive. A common default is [".github"].
 	Exclude []string
-	Now     func() time.Time
+	// IsExcluded, if non-nil, is consulted in addition to Exclude. It receives
+	// (org, repo) and returns true to drop the repo from collection. This is
+	// the hook for the YAML excludes config (org/name + */name patterns).
+	IsExcluded func(org, repo string) bool
+	Now        func() time.Time
 }
 
 // Run processes orgs sequentially. Per-repo enrichment is parallel within
@@ -61,6 +65,7 @@ func (c *Collector) Run(ctx context.Context, orgs []string) (Summary, error) {
 		}
 		listed := len(repos)
 		repos = filterExcluded(repos, c.Exclude)
+		repos = filterByPredicate(repos, c.IsExcluded)
 		excluded := listed - len(repos)
 		if excluded > 0 {
 			c.Logger.Info("listed", "org", org, "repos", len(repos), "excluded", excluded)
@@ -113,6 +118,23 @@ func filterExcluded(repos []Repository, exclude []string) []Repository {
 	out := make([]Repository, 0, len(repos))
 	for _, r := range repos {
 		if _, drop := skip[strings.ToLower(r.Name)]; drop {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// filterByPredicate drops any repo for which pred returns true. A nil pred
+// is a no-op (returns repos unchanged) so callers don't need to special-case
+// the "no excludes config" branch.
+func filterByPredicate(repos []Repository, pred func(org, repo string) bool) []Repository {
+	if pred == nil {
+		return repos
+	}
+	out := make([]Repository, 0, len(repos))
+	for _, r := range repos {
+		if pred(r.Org, r.Name) {
 			continue
 		}
 		out = append(out, r)

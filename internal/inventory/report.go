@@ -45,10 +45,8 @@ type reportData struct {
 	ComplianceNeverRun int
 
 	MissingLicensePublic []missingLicenseRow
-	MigrationBacklog     []backlogRow
-	MigrationExcluded    int
+	MigrationPriority    []migrationPriorityRow
 	ArchiveCandidates    []archiveRow
-	TopRiskNoCompliance  []topRiskRow
 
 	Languages []langRow
 	TopStars  []topStarRow
@@ -73,7 +71,8 @@ type totalRow struct {
 
 type complianceRow struct {
 	FullName    string
-	URL         string
+	URL         string // repo URL — currently unused in the rendered table but kept for future drill-downs
+	RunURL      string // workflow run URL; empty when the workflow has never been triggered
 	LastRunRel  string
 	StatusEmoji string
 	FailedJobs  string
@@ -87,12 +86,13 @@ type missingLicenseRow struct {
 	OwnerLabel string
 }
 
-type backlogRow struct {
+type migrationPriorityRow struct {
 	Org        string
 	Name       string
 	URL        string
 	Stars      int
 	PushedAt   time.Time
+	Status     string // "active" | "stale" | "fork"
 	OwnerLabel string
 }
 
@@ -104,15 +104,6 @@ type archiveRow struct {
 	Forks    int
 	PushedAt time.Time
 	Hint     string
-}
-
-type topRiskRow struct {
-	FullName   string
-	URL        string
-	Stars      int
-	Forks      int
-	PushedAt   time.Time
-	OwnerLabel string
 }
 
 type langRow struct {
@@ -235,6 +226,7 @@ func GenerateReport(inputDir, outputPath, diffFromPath string) error {
 			row := complianceRow{
 				FullName:    r.FullName,
 				URL:         r.URL,
+				RunURL:      r.LastComplianceRunURL,
 				LastRunRel:  humanRelative(r.LastComplianceRunAt, now),
 				StatusEmoji: statusEmoji(r.LastComplianceRunStatus, r.LastComplianceRunConclusion),
 				FailedJobs:  formatFailedJobs(r.LastComplianceRunConclusion, r.LastComplianceRunFailedJobs),
@@ -275,32 +267,21 @@ func GenerateReport(inputDir, outputPath, diffFromPath string) error {
 	})
 
 	for _, r := range allRepos {
-		if r.UsesComplianceWorkflow {
+		if r.UsesComplianceWorkflow || r.IsArchived || r.Visibility != "public" {
 			continue
 		}
-		if r.IsArchived {
-			data.MigrationExcluded++
-			continue
-		}
-		stale := r.CommitsLast365d == 0 && r.PushedAt.Before(staleCutoff)
-		if stale {
-			data.MigrationExcluded++
-			continue
-		}
-		if r.Visibility != "public" {
-			continue
-		}
-		data.MigrationBacklog = append(data.MigrationBacklog, backlogRow{
+		data.MigrationPriority = append(data.MigrationPriority, migrationPriorityRow{
 			Org:        r.Org,
 			Name:       r.Name,
 			URL:        r.URL,
 			Stars:      r.Stars,
 			PushedAt:   r.PushedAt,
+			Status:     migrationStatus(r, staleCutoff),
 			OwnerLabel: ownerLabel(r),
 		})
 	}
-	sort.Slice(data.MigrationBacklog, func(i, j int) bool {
-		a, b := data.MigrationBacklog[i], data.MigrationBacklog[j]
+	sort.Slice(data.MigrationPriority, func(i, j int) bool {
+		a, b := data.MigrationPriority[i], data.MigrationPriority[j]
 		if a.Stars != b.Stars {
 			return a.Stars > b.Stars
 		}
@@ -319,39 +300,12 @@ func GenerateReport(inputDir, outputPath, diffFromPath string) error {
 			Stars:    r.Stars,
 			Forks:    r.Forks,
 			PushedAt: r.PushedAt,
-			Hint:     archiveHint(r),
+			Hint:     archiveHint(r, now),
 		})
 	}
 	sort.Slice(data.ArchiveCandidates, func(i, j int) bool {
 		return data.ArchiveCandidates[i].PushedAt.Before(data.ArchiveCandidates[j].PushedAt)
 	})
-
-	var risk []Repository
-	for _, r := range allRepos {
-		if r.UsesComplianceWorkflow || r.Visibility != "public" {
-			continue
-		}
-		risk = append(risk, r)
-	}
-	sort.Slice(risk, func(i, j int) bool {
-		if risk[i].Stars != risk[j].Stars {
-			return risk[i].Stars > risk[j].Stars
-		}
-		return risk[i].FullName < risk[j].FullName
-	})
-	if len(risk) > 10 {
-		risk = risk[:10]
-	}
-	for _, r := range risk {
-		data.TopRiskNoCompliance = append(data.TopRiskNoCompliance, topRiskRow{
-			FullName:   r.FullName,
-			URL:        r.URL,
-			Stars:      r.Stars,
-			Forks:      r.Forks,
-			PushedAt:   r.PushedAt,
-			OwnerLabel: ownerLabel(r),
-		})
-	}
 
 	for name, count := range langCounts {
 		data.Languages = append(data.Languages, langRow{Name: name, Count: count})
@@ -553,12 +507,32 @@ func ownerLabel(r Repository) string {
 
 // archiveHint produces the per-row triage suggestion. Forks get a dedicated
 // hint because the relevance question turns on upstream activity, not stars.
-func archiveHint(r Repository) string {
+// "Possibly still active" is a softer label for the 12-24 month range — the
+// repo crossed the stale threshold but isn't ancient enough to recommend
+// archiving outright.
+func archiveHint(r Repository, now time.Time) string {
 	if r.IsFork {
 		return "Fork — check if upstream still relevant"
 	}
-	if r.Stars <= 5 {
+	if r.Stars > 5 || r.Forks > 5 {
+		return "Decision needed"
+	}
+	// 730 days ≈ 24 months, matching the existing 365-day stale cutoff idiom.
+	if now.Sub(r.PushedAt) >= 730*24*time.Hour {
 		return "Archive recommended"
 	}
-	return "Decision needed"
+	return "Possibly still active — verify before archiving"
+}
+
+// migrationStatus labels a repo for the Migration Priority table. "fork"
+// overrides the active/stale distinction because a fork's compliance posture
+// often follows its upstream's rather than the org's policy.
+func migrationStatus(r Repository, staleCutoff time.Time) string {
+	if r.IsFork {
+		return "fork"
+	}
+	if r.PushedAt.Before(staleCutoff) {
+		return "stale"
+	}
+	return "active"
 }

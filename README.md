@@ -71,6 +71,39 @@ run (`last_compliance_run_*`) and a likely-owner hint (`likely_owner`,
 `likely_owner_source`). All new fields are additive and `omitempty`, so
 older snapshots remain readable; missing fields default to zero values.
 
+### Excluding repos
+
+Some repos are tooling or infrastructure for the compliance program itself
+and aren't meaningful subjects of compliance reporting (the central
+workflow definition, data-only repos, the org `.github` repo). These are
+listed in `config/inventory-excludes.yml`:
+
+```yaml
+excludes:
+  - "*/.github"                      # any-org pattern
+  - SchwarzDigits/oss-compliance     # exact org/name pattern
+```
+
+Two pattern forms are supported: `<org>/<name>` for an exact match and
+`*/<name>` to match a name across any org. Comparisons are case-sensitive.
+Override the file path with `--excludes-config <path>` on
+`osstool inventory run`. The CLI works without the file present — a
+missing config is logged and treated as "no excludes".
+
+Excluded repos are dropped at collection time, so they never appear in
+the per-org JSON snapshots or the report. Snapshots taken before a repo
+was added to the excludes will still contain it; the diff sub-command
+will surface the one-time disappearance as a "Repositories removed" entry.
+
+### Report sections
+
+The Markdown report has a single **Migration Priority** section listing
+public repos that don't yet use the central compliance workflow, sorted
+by stars descending with an `active` / `stale` / `fork` status column.
+This replaces the earlier separate "Migration backlog" and "Risk:
+top-starred without compliance workflow" sections, which presented the
+same data twice.
+
 ### Make targets
 
 | Target | Description |
