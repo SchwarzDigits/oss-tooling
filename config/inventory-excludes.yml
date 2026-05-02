@@ -1,0 +1,14 @@
+# Repos excluded from inventory and reporting.
+#
+# These are tooling and infrastructure for the compliance program itself,
+# or org-default-file repos. They are not subjects of compliance reporting
+# and excluding them keeps adoption metrics honest.
+#
+# Patterns:
+#   - "<org>/<name>"   exact match
+#   - "*/<name>"        any org, exact repo name
+excludes:
+  - "*/.github"                       # org-default health files
+  - SchwarzDigits/oss-compliance      # the central workflow definition itself
+  - SchwarzDigits/oss-inventory       # data-only repo, no code
+  - SchwarzDigits/cla-signatures      # data-only repo, no software

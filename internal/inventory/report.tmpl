@@ -31,7 +31,7 @@ _Generated {{ .GeneratedAt.Format "2006-01-02 15:04:05 UTC" }} from `{{ .InputDi
 | Repo | Last run | Status | Failed jobs |
 |---|---|---|---|
 {{- range .Compliance }}
-| [{{ .FullName }}]({{ .URL }}) | {{ .LastRunRel }} | {{ .StatusEmoji }} | {{ .FailedJobs }} |
+| {{ .FullName }} | {{ .LastRunRel }} | {{ if .RunURL }}[{{ .StatusEmoji }}]({{ .RunURL }}){{ else }}{{ .StatusEmoji }}{{ end }} | {{ .FailedJobs }} |
 {{- end }}
 
 {{ .ComplianceCount }} repos use the central compliance workflow — {{ .ComplianceGreen }} green, {{ .ComplianceFailing }} failing, {{ .ComplianceRunning }} running, {{ .ComplianceNeverRun }} never run.
@@ -40,6 +40,8 @@ _No repositories use the central compliance workflow._
 {{- end }}
 
 ## Action: Public repos missing a LICENSE
+
+_Sorted by last push descending. Recently active repos appear first because they're the most urgent to address._
 
 {{ if .MissingLicensePublic -}}
 | Org | Repository | Last push | Likely owner |
@@ -51,39 +53,29 @@ _No repositories use the central compliance workflow._
 _None._
 {{- end }}
 
-## Migration backlog: repos without the central compliance workflow
+## Migration Priority
 
-{{ if .MigrationBacklog -}}
-| Org | Repository | Stars | Last push | Likely owner |
-|---|---|---:|---|---|
-{{- range .MigrationBacklog }}
-| {{ .Org }} | [{{ .Name }}]({{ .URL }}) | {{ .Stars }} | {{ .PushedAt.Format "2006-01-02" }} | {{ .OwnerLabel }} |
+_Public repos without the central compliance workflow, sorted by stars descending. Status: **active** = pushed in the last 12 months, **stale** = no commits in 12 months, **fork** = forked from upstream and may follow upstream's compliance posture._
+
+{{ if .MigrationPriority -}}
+| Org | Repository | Stars | Last push | Status | Likely owner |
+|---|---|---:|---|---|---|
+{{- range .MigrationPriority }}
+| {{ .Org }} | [{{ .Name }}]({{ .URL }}) | {{ .Stars }} | {{ .PushedAt.Format "2006-01-02" }} | {{ .Status }} | {{ .OwnerLabel }} |
 {{- end }}
-
-{{ .MigrationExcluded }} additional repos are excluded because they are stale or archived — see "Archive candidates" below.
 {{- else -}}
 _None._
 {{- end }}
 
 ## Archive candidates
 
+_Repos with no commits in the last 12 months. Hints: "Archive recommended" for ≤5 stars and not a fork after 24+ months; "Possibly still active — verify before archiving" for repos in the 12-24 month range; "Decision needed" for popular repos (>5 stars or >5 forks); "Fork" if forked from upstream._
+
 {{ if .ArchiveCandidates -}}
 | Org | Repository | Stars | Forks | Last push | Hint |
 |---|---|---:|---:|---|---|
 {{- range .ArchiveCandidates }}
 | {{ .Org }} | [{{ .Name }}]({{ .URL }}) | {{ .Stars }} | {{ .Forks }} | {{ .PushedAt.Format "2006-01-02" }} | {{ .Hint }} |
-{{- end }}
-{{- else -}}
-_None._
-{{- end }}
-
-## Risk: top-starred repos without the central compliance workflow
-
-{{ if .TopRiskNoCompliance -}}
-| Repo | Stars | Forks | Last push | Likely owner |
-|---|---:|---:|---|---|
-{{- range .TopRiskNoCompliance }}
-| [{{ .FullName }}]({{ .URL }}) | {{ .Stars }} | {{ .Forks }} | {{ .PushedAt.Format "2006-01-02" }} | {{ .OwnerLabel }} |
 {{- end }}
 {{- else -}}
 _None._
