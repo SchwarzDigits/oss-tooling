@@ -18,7 +18,7 @@ tidy:
 	go mod tidy
 
 run-inventory:
-	go run ./cmd/osstool inventory run --orgs SchwarzDigits,SchwarzIT
+	go run ./cmd/osstool inventory run
 
 clean:
 	rm -rf bin output

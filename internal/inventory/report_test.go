@@ -28,7 +28,7 @@ func TestGenerateReport_FromFixtures(t *testing.T) {
 	mustContain(t, got, "## Per-organization totals")
 	mustContain(t, got, "## Compliance status")
 	mustContain(t, got, "## Action: Public repos missing a LICENSE")
-	mustContain(t, got, "## Migration Priority")
+	mustContain(t, got, "## Compliance: Migration Priority")
 	mustContain(t, got, "## Archive candidates")
 	mustContain(t, got, "## Primary languages")
 	mustContain(t, got, "## Top 20 most-starred repositories")
@@ -70,7 +70,7 @@ func TestGenerateReport_FromFixtures(t *testing.T) {
 	// Priority < Archive candidates.
 	complianceIdx := strings.Index(got, "## Compliance status")
 	actionIdx := strings.Index(got, "## Action: Public repos missing a LICENSE")
-	migrationIdx := strings.Index(got, "## Migration Priority")
+	migrationIdx := strings.Index(got, "## Compliance: Migration Priority")
 	archiveIdx := strings.Index(got, "## Archive candidates")
 	if !(complianceIdx < actionIdx && actionIdx < migrationIdx && migrationIdx < archiveIdx) {
 		t.Errorf("section ordering wrong: compliance=%d action=%d migration=%d archive=%d",
@@ -91,7 +91,7 @@ func TestGenerateReport_FromFixtures(t *testing.T) {
 	// Migration Priority should include active repos but not archived ones.
 	// platform-cli is active and lacks compliance workflow → expect it here
 	// with the active status label.
-	migrationSection := sliceBetween(got, "## Migration Priority", "## ")
+	migrationSection := sliceBetween(got, "## Compliance: Migration Priority", "## ")
 	if !strings.Contains(migrationSection, "platform-cli") {
 		t.Errorf("platform-cli missing from migration priority section:\n%s", migrationSection)
 	}

@@ -5,12 +5,13 @@ on:
     # Nightly at 02:00 UTC
     - cron: '0 2 * * *'
   workflow_dispatch:
-    # Allow manual triggering
+    # Allow manual triggering. Leave orgs empty to use the defaults from
+    # config/inventory.yml; provide a value to override for one run.
     inputs:
       orgs:
-        description: 'Comma-separated list of organizations to inventory'
+        description: 'Override orgs to inventory (comma-separated). Leave blank to use config/inventory.yml defaults.'
         required: false
-        default: 'SchwarzDigits,SchwarzIT'
+        default: ''
 
 permissions:
   contents: read
@@ -38,8 +39,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.OSS_TOOLING_TOKEN }}
         run: |
-          ORGS="${{ inputs.orgs || 'SchwarzDigits,SchwarzIT' }}"
-          ./bin/osstool inventory run --orgs "$ORGS" --output ./output
+          if [ -n "${{ inputs.orgs }}" ]; then
+            ./bin/osstool inventory run --orgs "${{ inputs.orgs }}" --output ./output
+          else
+            ./bin/osstool inventory run --output ./output
+          fi
 
       - name: Generate report
         run: ./bin/osstool inventory report --input ./output/latest --output ./output/summary.md

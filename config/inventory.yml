@@ -1,3 +1,16 @@
+# Inventory tool configuration.
+#
+# Drives both `osstool inventory run` (which orgs to scan, which repos to
+# skip) and the resulting reports. The CLI works without this file —
+# missing config is logged and treated as "no defaults" — but landing it
+# in source keeps the GitHub Actions workflow and local runs in sync.
+
+# Default orgs scanned by `inventory run` when --orgs is not given.
+# CLI --orgs always overrides.
+orgs:
+  - SchwarzDigits
+  - SchwarzIT
+
 # Repos excluded from inventory and reporting.
 #
 # These are tooling and infrastructure for the compliance program itself,

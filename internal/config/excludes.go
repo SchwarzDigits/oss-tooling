@@ -1,67 +1,27 @@
-// Package config provides loaders for optional repo-level configuration files
-// that influence what the inventory tool collects and reports.
 package config
 
 import (
-	"errors"
-	"fmt"
-	"io/fs"
 	"log/slog"
-	"os"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // Excludes is a compiled list of "skip this repo" patterns. Use IsExcluded
 // to test a candidate (org, repo) pair. The zero value is a valid empty
 // matcher that excludes nothing.
 type Excludes struct {
-	exact     map[string]struct{} // "<org>/<name>"
-	anyOrg    map[string]struct{} // "<name>" derived from "*/<name>"
+	exact  map[string]struct{} // "<org>/<name>"
+	anyOrg map[string]struct{} // "<name>" derived from "*/<name>"
 }
 
-type excludesFile struct {
-	Excludes []string `yaml:"excludes"`
-}
-
-// Load reads and parses an excludes YAML file. A missing file returns
-// (nil, fs.ErrNotExist) — callers that prefer to proceed without excludes
-// should use LoadOrEmpty.
-func Load(path string) (*Excludes, error) {
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var raw excludesFile
-	if err := yaml.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("parse %q: %w", path, err)
-	}
-	return compile(raw.Excludes), nil
-}
-
-// LoadOrEmpty wraps Load with the policy "missing file is fine". A missing
-// file logs at INFO level and returns an empty matcher; any other parse
-// error logs at WARN and also returns an empty matcher. This keeps the CLI
-// usable in environments that haven't seeded the config (e.g. fresh clones
-// or one-off invocations).
-func LoadOrEmpty(path string, logger *slog.Logger) *Excludes {
-	if logger == nil {
-		logger = slog.Default()
-	}
-	e, err := Load(path)
-	if err == nil {
-		return e
-	}
-	if errors.Is(err, fs.ErrNotExist) {
-		logger.Info("excludes config not found, proceeding with no excludes", "path", path)
-		return &Excludes{}
-	}
-	logger.Warn("excludes config unreadable, proceeding with no excludes", "path", path, "err", err)
-	return &Excludes{}
-}
-
-func compile(patterns []string) *Excludes {
+// NewExcludes compiles a slice of pattern strings into an Excludes matcher.
+// Supported patterns:
+//
+//   - "<org>/<repo>" — exact, case-sensitive match against "<org>/<repo>"
+//   - "*/<repo>"     — match the repo segment across any org
+//
+// Anything else is logged at WARN and ignored. Empty / whitespace-only
+// patterns are silently dropped.
+func NewExcludes(patterns []string) *Excludes {
 	logger := slog.Default()
 	e := &Excludes{
 		exact:  make(map[string]struct{}),
