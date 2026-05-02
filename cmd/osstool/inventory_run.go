@@ -17,11 +17,11 @@ import (
 )
 
 type runFlags struct {
-	orgs           []string
-	output         string
-	concurrency    int
-	exclude        []string
-	excludesConfig string
+	orgs        []string
+	output      string
+	concurrency int
+	exclude     []string
+	configPath  string
 }
 
 func newInventoryRunCmd() *cobra.Command {
@@ -32,11 +32,12 @@ func newInventoryRunCmd() *cobra.Command {
 		Long: `Enumerate non-archived repositories in the given organizations,
 collect compliance metadata, and write per-org JSON files to the output directory.
 
+Orgs are read from --orgs (CLI), or, if that flag is empty, from the
+"orgs" key of the YAML config at --config (default config/inventory.yml).
+The same config file lists repos to exclude from collection.
+
 Requires the GITHUB_TOKEN environment variable.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(f.orgs) == 0 {
-				return errors.New("--orgs is required")
-			}
 			token := os.Getenv("GITHUB_TOKEN")
 			if token == "" {
 				return errors.New("GITHUB_TOKEN is required")
@@ -52,12 +53,20 @@ Requires the GITHUB_TOKEN environment variable.`,
 			defer stop()
 
 			logger := slog.Default()
+			cfg := config.LoadInventoryOrEmpty(f.configPath, logger)
+
+			orgs := f.orgs
+			if len(orgs) == 0 {
+				orgs = cfg.Orgs
+			}
+			if len(orgs) == 0 {
+				return errors.New("no orgs to scan: pass --orgs or list orgs in " + f.configPath)
+			}
+
 			clients, err := gh.NewClients(ctx, token, logger)
 			if err != nil {
 				return fmt.Errorf("github clients: %w", err)
 			}
-
-			excludes := config.LoadOrEmpty(f.excludesConfig, logger)
 
 			c := &inventory.Collector{
 				Clients:     clients,
@@ -65,11 +74,11 @@ Requires the GITHUB_TOKEN environment variable.`,
 				Concurrency: f.concurrency,
 				OutputDir:   f.output,
 				Exclude:     f.exclude,
-				IsExcluded:  excludes.IsExcluded,
+				IsExcluded:  cfg.Excludes.IsExcluded,
 			}
 
 			start := time.Now()
-			summary, err := c.Run(ctx, f.orgs)
+			summary, err := c.Run(ctx, orgs)
 			if err != nil {
 				return err
 			}
@@ -90,13 +99,13 @@ Requires the GITHUB_TOKEN environment variable.`,
 		},
 	}
 
-	cmd.Flags().StringSliceVar(&f.orgs, "orgs", nil, "comma-separated list of GitHub organizations (required)")
+	cmd.Flags().StringSliceVar(&f.orgs, "orgs", nil,
+		"comma-separated GitHub organizations to scan (overrides config)")
 	cmd.Flags().StringVar(&f.output, "output", "./output", "output directory for per-org JSON files")
 	cmd.Flags().IntVar(&f.concurrency, "concurrency", 5, "number of repositories enriched in parallel (1..20)")
 	cmd.Flags().StringSliceVar(&f.exclude, "exclude", []string{".github"},
 		"comma-separated repository names to skip (case-insensitive, matches Name not full_name)")
-	cmd.Flags().StringVar(&f.excludesConfig, "excludes-config", "config/inventory-excludes.yml",
-		"path to YAML excludes file (org/name and */name patterns); missing file is logged and ignored")
-	_ = cmd.MarkFlagRequired("orgs")
+	cmd.Flags().StringVar(&f.configPath, "config", "config/inventory.yml",
+		"path to inventory YAML config (orgs + excludes); missing file is logged and ignored")
 	return cmd
 }

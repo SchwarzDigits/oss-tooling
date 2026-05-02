@@ -33,7 +33,10 @@ personal access token in `GITHUB_TOKEN`.
 make build
 export GITHUB_TOKEN=ghp_xxx
 
-# Collect repositories from one or more orgs into ./output
+# Collect repositories using the orgs listed in config/inventory.yml
+./bin/osstool inventory run
+
+# Or override the config and pass orgs on the command line
 ./bin/osstool inventory run --orgs SchwarzDigits,SchwarzIT
 
 # Generate a Markdown summary from the latest output
@@ -71,24 +74,30 @@ run (`last_compliance_run_*`) and a likely-owner hint (`likely_owner`,
 `likely_owner_source`). All new fields are additive and `omitempty`, so
 older snapshots remain readable; missing fields default to zero values.
 
-### Excluding repos
+### Configuration
 
-Some repos are tooling or infrastructure for the compliance program itself
-and aren't meaningful subjects of compliance reporting (the central
-workflow definition, data-only repos, the org `.github` repo). These are
-listed in `config/inventory-excludes.yml`:
+`config/inventory.yml` drives both which orgs are scanned and which
+repos are excluded:
 
 ```yaml
+orgs:
+  - SchwarzDigits
+  - SchwarzIT
 excludes:
   - "*/.github"                      # any-org pattern
   - SchwarzDigits/oss-compliance     # exact org/name pattern
 ```
 
-Two pattern forms are supported: `<org>/<name>` for an exact match and
-`*/<name>` to match a name across any org. Comparisons are case-sensitive.
-Override the file path with `--excludes-config <path>` on
-`osstool inventory run`. The CLI works without the file present — a
-missing config is logged and treated as "no excludes".
+`orgs` are the default list scanned by `osstool inventory run`; the
+`--orgs` CLI flag overrides them. `excludes` lists repos that aren't
+meaningful subjects of compliance reporting (the central workflow
+definition, data-only repos, the org `.github` repo). Two pattern forms
+are supported: `<org>/<name>` for an exact match and `*/<name>` to match
+a name across any org. Comparisons are case-sensitive.
+
+Point at a different config with `--config <path>`. The CLI works
+without the file present — a missing config is logged and treated as
+"no defaults", in which case `--orgs` becomes mandatory.
 
 Excluded repos are dropped at collection time, so they never appear in
 the per-org JSON snapshots or the report. Snapshots taken before a repo
@@ -97,12 +106,12 @@ will surface the one-time disappearance as a "Repositories removed" entry.
 
 ### Report sections
 
-The Markdown report has a single **Migration Priority** section listing
-public repos that don't yet use the central compliance workflow, sorted
-by stars descending with an `active` / `stale` / `fork` status column.
-This replaces the earlier separate "Migration backlog" and "Risk:
-top-starred without compliance workflow" sections, which presented the
-same data twice.
+The Markdown report has a single **Compliance: Migration Priority**
+section listing public repos that don't yet use the central compliance
+workflow, sorted by stars descending with an `active` / `stale` /
+`fork` status column. This replaces the earlier separate "Migration
+backlog" and "Risk: top-starred without compliance workflow" sections,
+which presented the same data twice.
 
 ### Make targets
 

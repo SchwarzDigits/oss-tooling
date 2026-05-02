@@ -1,31 +1,17 @@
 package config
 
-import (
-	"os"
-	"path/filepath"
-	"testing"
-)
+import "testing"
 
 func TestExcludes_IsExcluded(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, "excludes.yml")
-	body := []byte(`excludes:
-  - "*/.github"
-  - SchwarzDigits/oss-compliance
-  - SchwarzDigits/oss-inventory
-  - "  "
-  - "bogus pattern with spaces and stars*"
-`)
-	if err := os.WriteFile(path, body, 0o644); err != nil {
-		t.Fatalf("seed file: %v", err)
-	}
-
-	e, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
+	e := NewExcludes([]string{
+		"*/.github",
+		"SchwarzDigits/oss-compliance",
+		"SchwarzDigits/oss-inventory",
+		"   ",
+		"bogus pattern with spaces and stars*",
+	})
 
 	cases := []struct {
 		org, repo string
@@ -54,18 +40,6 @@ func TestExcludes_IsExcluded(t *testing.T) {
 	}
 }
 
-func TestExcludes_LoadOrEmpty_MissingFile(t *testing.T) {
-	t.Parallel()
-
-	e := LoadOrEmpty(filepath.Join(t.TempDir(), "does-not-exist.yml"), nil)
-	if e == nil {
-		t.Fatalf("LoadOrEmpty returned nil")
-	}
-	if e.IsExcluded("SchwarzDigits", "oss-compliance") {
-		t.Errorf("empty excludes should not match anything")
-	}
-}
-
 func TestExcludes_NilReceiverIsSafe(t *testing.T) {
 	t.Parallel()
 
@@ -78,15 +52,7 @@ func TestExcludes_NilReceiverIsSafe(t *testing.T) {
 func TestExcludes_EmptyPatternsCompileToNoop(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, "excludes.yml")
-	if err := os.WriteFile(path, []byte("excludes: []\n"), 0o644); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	e, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
+	e := NewExcludes(nil)
 	if e.IsExcluded("a", "b") {
 		t.Errorf("empty list should not match")
 	}
