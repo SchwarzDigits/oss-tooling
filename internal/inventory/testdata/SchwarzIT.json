@@ -40,7 +40,9 @@
       "commits_last_365d": 100,
       "active_contributors_90d": 4,
       "manifests": ["go.mod"],
-      "collected_at": "2026-05-01T00:00:00Z"
+      "collected_at": "2026-05-01T00:00:00Z",
+      "likely_owner": "@platform-cli-team",
+      "likely_owner_source": "codeowners"
     },
     {
       "org": "SchwarzIT",

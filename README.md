@@ -106,12 +106,28 @@ will surface the one-time disappearance as a "Repositories removed" entry.
 
 ### Report sections
 
-The Markdown report has a single **Compliance: Migration Priority**
-section listing public repos that don't yet use the central compliance
-workflow, sorted by stars descending with an `active` / `stale` /
-`fork` status column. This replaces the earlier separate "Migration
-backlog" and "Risk: top-starred without compliance workflow" sections,
-which presented the same data twice.
+Every repo is classified into one of three lifecycle statuses —
+**active** (pushed in the last 12 months), **stale** (older), or
+**archived** — and that vocabulary is reused across the per-org table,
+the **Compliance: Migration Priority** section, and the Archive
+Candidates section. The report's **Status definitions** footer at the
+end of the report spells out the rules in one place; section
+methodology hints reference the footer rather than restating them.
+
+Status header percentages use the active count as the denominator —
+stale and archived repos can't realistically be onboarded, so including
+them would understate adoption progress. The license-compliance bullet
+also surfaces the overall ratio (across all statuses), since legal
+obligation isn't excused by stale status.
+
+The "Likely owner" column attributes a repo first to a CODEOWNERS file
+(suffix **(CO)**) and otherwise to the dominant non-bot author in the
+last 100 commits on the default branch, with a fallback to commits
+101-200 if the first 100 are bot-only (suffix **(committer)**). The
+underlying `LikelyOwnerSource` field on the JSON snapshot is one of
+`codeowners`, `top_committer_recent`, or empty (renaming the older
+`top_committer_90d` value — readers handling old snapshots can treat
+any `top_committer_*` value as the same source class).
 
 ### Make targets
 

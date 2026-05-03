@@ -92,7 +92,7 @@
       "last_compliance_run_url": "https://github.com/SchwarzDigits/compliance-but-no-security/actions/runs/55",
       "last_compliance_run_failed_jobs": ["license-and-sbom"],
       "likely_owner": "alice",
-      "likely_owner_source": "top_committer_90d"
+      "likely_owner_source": "top_committer_recent"
     },
     {
       "org": "SchwarzDigits",
@@ -133,7 +133,7 @@
       "manifests": ["package.json"],
       "collected_at": "2026-05-01T00:00:00Z",
       "likely_owner": "bob",
-      "likely_owner_source": "top_committer_90d"
+      "likely_owner_source": "top_committer_recent"
     },
     {
       "org": "SchwarzDigits",

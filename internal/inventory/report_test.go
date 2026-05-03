@@ -32,6 +32,7 @@ func TestGenerateReport_FromFixtures(t *testing.T) {
 	mustContain(t, got, "## Archive candidates")
 	mustContain(t, got, "## Primary languages")
 	mustContain(t, got, "## Top 20 most-starred repositories")
+	mustContain(t, got, "## Status definitions")
 
 	// Old sections that the merge replaced must be gone.
 	mustNotContain(t, got, "## Migration backlog")
@@ -39,10 +40,19 @@ func TestGenerateReport_FromFixtures(t *testing.T) {
 
 	mustNotContain(t, got, "## Changes since previous snapshot")
 
-	// Methodology hints (italic one-liners) live under three sections.
+	// Per-org table uses the unified Active/Stale/Archived columns.
+	mustContain(t, got, "| Active | Stale | Archived | Total | With LICENSE | Compliance WF |")
+
+	// Status header percentages now use "active repos" denominator and
+	// the license bullet carries an "overall" fragment.
+	mustContain(t, got, "active repos (")
+	mustContain(t, got, "— overall:")
+
+	// Methodology hints. Migration Priority and Archive use the shortened
+	// versions that defer to the Status definitions footer.
 	mustContain(t, got, "_Sorted by last push descending. Recently active repos appear first")
-	mustContain(t, got, "_Public repos without the central compliance workflow, sorted by stars descending.")
-	mustContain(t, got, "_Repos with no commits in the last 12 months. Hints:")
+	mustContain(t, got, "Status is \"active\" or \"stale\"")
+	mustContain(t, got, "_Stale repos and triage hints to support archive/keep decisions.")
 
 	// Specific fixtures appear in their expected sections.
 	mustContain(t, got, "lonely-repo")     // public, no license -> Action section
@@ -63,8 +73,13 @@ func TestGenerateReport_FromFixtures(t *testing.T) {
 	mustContain(t, got, "[❌ failure](https://github.com/SchwarzDigits/compliance-but-no-security/actions/runs/55)")
 	mustContain(t, got, "[✅ success](https://github.com/SchwarzDigits/oss-tooling/actions/runs/100)")
 
-	// Owner labels render with their source suffix.
-	mustContain(t, got, "(recent committer)")
+	// Owner labels render with their (short) source suffix; both
+	// CODEOWNERS-sourced and committer-sourced rows appear in the fixtures.
+	mustContain(t, got, "(committer)")
+	mustContain(t, got, "(CO)")
+	// The old long suffixes must not leak through.
+	mustNotContain(t, got, "(recent committer)")
+	mustNotContain(t, got, "(CODEOWNERS)")
 
 	// Section ordering after the merge: Compliance < Action < Migration
 	// Priority < Archive candidates.
@@ -154,8 +169,11 @@ func TestArchiveHint(t *testing.T) {
 	}
 }
 
-// TestMigrationStatus checks the Migration Priority status column logic.
-func TestMigrationStatus(t *testing.T) {
+// TestRepoStatus exercises the unified active/stale/archived classifier.
+// The "archived overrides everything" rule matters because GitHub allows
+// archiving a repo that was pushed seconds before — the lifecycle status
+// follows the archive flag, not the push timestamp.
+func TestRepoStatus(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
@@ -166,18 +184,21 @@ func TestMigrationStatus(t *testing.T) {
 		repo Repository
 		want string
 	}{
-		{"fork wins over active", Repository{IsFork: true, PushedAt: now}, "fork"},
-		{"fork wins over stale", Repository{IsFork: true, PushedAt: now.AddDate(-3, 0, 0)}, "fork"},
-		{"active recent push", Repository{PushedAt: now.AddDate(0, -1, 0)}, "active"},
-		{"stale ancient push", Repository{PushedAt: now.AddDate(-2, 0, 0)}, "stale"},
+		{"archived beats recent push", Repository{IsArchived: true, PushedAt: now}, "archived"},
+		{"archived beats ancient push", Repository{IsArchived: true, PushedAt: now.AddDate(-5, 0, 0)}, "archived"},
+		{"active when pushed inside cutoff", Repository{PushedAt: now.AddDate(0, -1, 0)}, "active"},
+		{"active at exact cutoff (just inside)", Repository{PushedAt: cutoff.Add(time.Second)}, "active"},
+		{"stale when pushed before cutoff", Repository{PushedAt: now.AddDate(-2, 0, 0)}, "stale"},
+		{"fork is metadata, not a status — active fork stays active", Repository{IsFork: true, PushedAt: now}, "active"},
+		{"fork is metadata, not a status — stale fork stays stale", Repository{IsFork: true, PushedAt: now.AddDate(-3, 0, 0)}, "stale"},
 	}
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := migrationStatus(tc.repo, cutoff)
+			got := repoStatus(tc.repo, cutoff)
 			if got != tc.want {
-				t.Errorf("migrationStatus = %q, want %q", got, tc.want)
+				t.Errorf("repoStatus = %q, want %q", got, tc.want)
 			}
 		})
 	}
