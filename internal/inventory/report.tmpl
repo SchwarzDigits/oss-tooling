@@ -6,6 +6,9 @@ _Generated {{ .GeneratedAt.Format "2006-01-02 15:04:05 UTC" }} from `{{ .InputDi
 - Compliance adoption: **{{ .StatusComplianceAdoption }}**{{ if .HasDiff }} — vs. previous: {{ .StatusComplianceDelta }}{{ end }}
 - License compliance: **{{ .StatusLicense }}**{{ if .HasDiff }} — vs. previous: {{ .StatusLicenseDelta }}{{ end }}
 - Failing compliance runs: **{{ .StatusFailingRuns }}**
+{{- if .HasActiveCountDelta }}
+- Active repo count: **{{ .StatusActiveCount }}** ({{ .StatusActiveDelta }} since previous)
+{{- end }}
 {{- if .HasDiff }}
 - New repos since previous snapshot: **{{ .StatusNewSincePrev }}**
 - Archived since previous snapshot: **{{ .StatusArchivedSincePrev }}**
@@ -18,12 +21,12 @@ _Generated {{ .GeneratedAt.Format "2006-01-02 15:04:05 UTC" }} from `{{ .InputDi
 
 ## Per-organization totals
 
-| Organization | Repositories | With license | Missing license | Stale (no commits 365d) | Uses compliance workflow |
-|---|---:|---:|---:|---:|---:|
+| Organization | Active | Stale | Archived | Total | With LICENSE | Compliance WF |
+|---|---:|---:|---:|---:|---:|---:|
 {{- range .Orgs }}
-| {{ .Name }} | {{ .Total }} | {{ .WithLicense }} | {{ .MissingLicense }} | {{ .Stale }} | {{ .UsesCompliance }} |
+| {{ .Name }} | {{ .Active }} | {{ .Stale }} | {{ .Archived }} | {{ .Total }} | {{ .WithLicense }} | {{ .UsesCompliance }} |
 {{- end }}
-| **All** | **{{ .Totals.Total }}** | **{{ .Totals.WithLicense }}** | **{{ .Totals.MissingLicense }}** | **{{ .Totals.Stale }}** | **{{ .Totals.UsesCompliance }}** |
+| **All** | **{{ .Totals.Active }}** | **{{ .Totals.Stale }}** | **{{ .Totals.Archived }}** | **{{ .Totals.Total }}** | **{{ .Totals.WithLicense }}** | **{{ .Totals.UsesCompliance }}** |
 
 ## Compliance status
 
@@ -55,7 +58,7 @@ _None._
 
 ## Compliance: Migration Priority
 
-_Public repos without the central compliance workflow, sorted by stars descending. Status: **active** = pushed in the last 12 months, **stale** = no commits in 12 months, **fork** = forked from upstream and may follow upstream's compliance posture._
+_Public repos without the central compliance workflow, sorted by stars descending. Status is "active" or "stale" — see "Status definitions" at the end of this report._
 
 {{ if .MigrationPriority -}}
 | Org | Repository | Stars | Last push | Status | Likely owner |
@@ -69,7 +72,7 @@ _None._
 
 ## Archive candidates
 
-_Repos with no commits in the last 12 months. Hints: "Archive recommended" for ≤5 stars and not a fork after 24+ months; "Possibly still active — verify before archiving" for repos in the 12-24 month range; "Decision needed" for popular repos (>5 stars or >5 forks); "Fork" if forked from upstream._
+_Stale repos and triage hints to support archive/keep decisions. "Archive recommended" for low-engagement repos older than 24 months; "Possibly still active" for the 12-24 month range; "Decision needed" for popular repos; "Fork" if forked from upstream._
 
 {{ if .ArchiveCandidates -}}
 | Org | Repository | Stars | Forks | Last push | Hint |
@@ -104,3 +107,17 @@ _No languages detected._
 {{- else -}}
 _No repositories._
 {{- end }}
+
+## Status definitions
+
+Each repository is classified into exactly one of the following statuses:
+
+- **active** — Pushed within the last 12 months and not archived. Eligible for compliance workflow onboarding.
+- **stale** — No commits in the last 12 months and not archived. Triage decision needed: archive, revive, or keep as historical. See "Archive candidates" for triage hints.
+- **archived** — Repository marked as archived on GitHub. Read-only; excluded from active compliance programs. See the Open Source Policy for handling of historical findings.
+
+The "Likely owner" column uses these suffixes:
+
+- **(CO)** — Owner derived from the repository's CODEOWNERS file. Authoritative.
+- **(committer)** — Owner derived from the dominant author in the last 100 commits. May be historical if the repo is stale.
+- **(unowned)** — No CODEOWNERS file and no non-bot commits found in the last 200 commits.

@@ -46,13 +46,13 @@ func enrichRepo(ctx context.Context, c *gh.Clients, r *Repository) error {
 		return nil
 	}
 
-	login, err := gh.GetTopCommitter90d(ctx, c.REST, r.Org, r.Name, r.DefaultBranch)
+	login, err := gh.GetTopCommitter(ctx, c.REST, r.Org, r.Name, r.DefaultBranch)
 	if err != nil {
 		logger.Warn("top committer lookup failed", "repo", r.FullName, "err", err)
 	}
 	if login != "" {
 		r.LikelyOwner = login
-		r.LikelyOwnerSource = "top_committer_90d"
+		r.LikelyOwnerSource = "top_committer_recent"
 	}
 	return nil
 }

@@ -31,6 +31,9 @@ type reportData struct {
 	StatusLicense            string
 	StatusLicenseDelta       string
 	StatusFailingRuns        int
+	StatusActiveCount        int
+	StatusActiveDelta        string
+	HasActiveCountDelta      bool
 	StatusNewSincePrev       int
 	StatusArchivedSincePrev  int
 
@@ -54,18 +57,20 @@ type reportData struct {
 
 type orgRow struct {
 	Name           string
+	Active         int
+	Stale          int
+	Archived       int
 	Total          int
 	WithLicense    int
-	MissingLicense int
-	Stale          int
 	UsesCompliance int
 }
 
 type totalRow struct {
+	Active         int
+	Stale          int
+	Archived       int
 	Total          int
 	WithLicense    int
-	MissingLicense int
-	Stale          int
 	UsesCompliance int
 }
 
@@ -92,7 +97,7 @@ type migrationPriorityRow struct {
 	URL        string
 	Stars      int
 	PushedAt   time.Time
-	Status     string // "active" | "stale" | "fork"
+	Status     string // "active" | "stale" — archived repos are filtered out of this section
 	OwnerLabel string
 }
 
@@ -179,7 +184,12 @@ func GenerateReport(inputDir, outputPath, diffFromPath string) error {
 
 	staleCutoff := now.Add(-365 * 24 * time.Hour)
 
+	// Roll up per-org and total counts in a single pass. Status
+	// (active/stale/archived) is computed via repoStatus and used for both
+	// the per-org table and the active-denominator percentages in the
+	// status header.
 	langCounts := map[string]int{}
+	var activeUsesCompliance, activeWithLicense int
 	for _, r := range allRepos {
 		idx, ok := orgIndex[r.Org]
 		if !ok {
@@ -190,35 +200,57 @@ func GenerateReport(inputDir, outputPath, diffFromPath string) error {
 		row := &orgs[idx]
 		row.Total++
 		data.Totals.Total++
+		status := repoStatus(r, staleCutoff)
+		switch status {
+		case "active":
+			row.Active++
+			data.Totals.Active++
+		case "stale":
+			row.Stale++
+			data.Totals.Stale++
+		case "archived":
+			row.Archived++
+			data.Totals.Archived++
+		}
 		if r.HasLicense {
 			row.WithLicense++
 			data.Totals.WithLicense++
-		} else {
-			row.MissingLicense++
-			data.Totals.MissingLicense++
-		}
-		if r.CommitsLast365d == 0 && r.PushedAt.Before(staleCutoff) {
-			row.Stale++
-			data.Totals.Stale++
+			if status == "active" {
+				activeWithLicense++
+			}
 		}
 		if r.UsesComplianceWorkflow {
 			row.UsesCompliance++
 			data.Totals.UsesCompliance++
+			if status == "active" {
+				activeUsesCompliance++
+			}
 		}
 		if lang := r.PrimaryLang; lang != "" {
 			langCounts[lang]++
 		}
 	}
 	data.Orgs = orgs
+	data.StatusActiveCount = data.Totals.Active
 
-	data.StatusComplianceAdoption = formatRatio(data.Totals.UsesCompliance, data.Totals.Total)
-	data.StatusLicense = formatRatio(data.Totals.WithLicense, data.Totals.Total)
+	// Status-header percentages use the active count as denominator —
+	// stale and archived repos can't realistically be onboarded, and
+	// including them understates real adoption progress.
+	data.StatusComplianceAdoption = formatActiveRatio(activeUsesCompliance, data.Totals.Active)
+	data.StatusLicense = formatActiveAndOverall(activeWithLicense, data.Totals.Active,
+		data.Totals.WithLicense, data.Totals.Total)
 
 	if data.HasDiff {
 		data.StatusComplianceDelta = formatDelta(
-			countCompliance(allRepos) - countCompliance(prevRepos))
+			countActiveCompliance(allRepos, staleCutoff) - countActiveCompliance(prevRepos, staleCutoff))
 		data.StatusLicenseDelta = formatDelta(
-			countLicense(allRepos) - countLicense(prevRepos))
+			countActiveLicense(allRepos, staleCutoff) - countActiveLicense(prevRepos, staleCutoff))
+
+		prevActive := countActive(prevRepos, staleCutoff)
+		if delta := data.StatusActiveCount - prevActive; delta != 0 {
+			data.HasActiveCountDelta = true
+			data.StatusActiveDelta = formatDelta(delta)
+		}
 	}
 
 	for _, r := range allRepos {
@@ -270,13 +302,16 @@ func GenerateReport(inputDir, outputPath, diffFromPath string) error {
 		if r.UsesComplianceWorkflow || r.IsArchived || r.Visibility != "public" {
 			continue
 		}
+		// Status here is "active" or "stale" only — archived repos were
+		// dropped above; the unified status helper would otherwise also
+		// return "archived".
 		data.MigrationPriority = append(data.MigrationPriority, migrationPriorityRow{
 			Org:        r.Org,
 			Name:       r.Name,
 			URL:        r.URL,
 			Stars:      r.Stars,
 			PushedAt:   r.PushedAt,
-			Status:     migrationStatus(r, staleCutoff),
+			Status:     repoStatus(r, staleCutoff),
 			OwnerLabel: ownerLabel(r),
 		})
 	}
@@ -289,8 +324,7 @@ func GenerateReport(inputDir, outputPath, diffFromPath string) error {
 	})
 
 	for _, r := range allRepos {
-		stale := r.CommitsLast365d == 0 && r.PushedAt.Before(staleCutoff)
-		if !stale {
+		if repoStatus(r, staleCutoff) != "stale" {
 			continue
 		}
 		data.ArchiveCandidates = append(data.ArchiveCandidates, archiveRow{
@@ -392,6 +426,31 @@ func formatRatio(n, total int) string {
 	return fmt.Sprintf("%d / %d repos (%d%%)", n, total, pct)
 }
 
+// formatActiveRatio is formatRatio specialized to the "active" denominator
+// used in the status header. Spelling out "active repos" in the rendered
+// string is what makes the percentage interpretable to a reader who
+// hasn't seen the Status definitions footer yet.
+func formatActiveRatio(n, activeTotal int) string {
+	if activeTotal == 0 {
+		return fmt.Sprintf("%d / %d active repos (0%%)", n, activeTotal)
+	}
+	pct := int(math.Round(100 * float64(n) / float64(activeTotal)))
+	return fmt.Sprintf("%d / %d active repos (%d%%)", n, activeTotal, pct)
+}
+
+// formatActiveAndOverall is used for license compliance — legal obligation
+// applies regardless of activity, so we surface both the active-only ratio
+// (to set realistic targets) and the overall ratio (to keep the absolute
+// gap visible).
+func formatActiveAndOverall(activeN, activeTotal, overallN, overallTotal int) string {
+	active := formatActiveRatio(activeN, activeTotal)
+	overallPct := 0
+	if overallTotal > 0 {
+		overallPct = int(math.Round(100 * float64(overallN) / float64(overallTotal)))
+	}
+	return fmt.Sprintf("%s — overall: %d / %d (%d%%)", active, overallN, overallTotal, overallPct)
+}
+
 // formatDelta renders "+N" / "-N" / "unchanged" for status-bullet deltas.
 func formatDelta(d int) string {
 	switch {
@@ -404,20 +463,37 @@ func formatDelta(d int) string {
 	}
 }
 
-func countCompliance(repos []Repository) int {
+// countActive returns how many repos in the slice are currently active
+// (not archived, pushed within staleCutoff). Used for the active-count
+// delta in the status header.
+func countActive(repos []Repository, staleCutoff time.Time) int {
 	n := 0
 	for _, r := range repos {
-		if r.UsesComplianceWorkflow {
+		if repoStatus(r, staleCutoff) == "active" {
 			n++
 		}
 	}
 	return n
 }
 
-func countLicense(repos []Repository) int {
+// countActiveCompliance returns how many active repos use the central
+// compliance workflow. Active-only is what the diff delta should compare,
+// since adoption progress is only meaningful among onboardable repos.
+func countActiveCompliance(repos []Repository, staleCutoff time.Time) int {
 	n := 0
 	for _, r := range repos {
-		if r.HasLicense {
+		if r.UsesComplianceWorkflow && repoStatus(r, staleCutoff) == "active" {
+			n++
+		}
+	}
+	return n
+}
+
+// countActiveLicense returns how many active repos have a LICENSE file.
+func countActiveLicense(repos []Repository, staleCutoff time.Time) int {
+	n := 0
+	for _, r := range repos {
+		if r.HasLicense && repoStatus(r, staleCutoff) == "active" {
 			n++
 		}
 	}
@@ -487,22 +563,31 @@ func formatFailedJobs(conclusion string, jobs []string) string {
 // ownerLabel renders the per-repo Likely owner cell. Missing values show as
 // "(unowned)". CODEOWNERS values already include a leading "@". Top-committer
 // values are GitHub logins without a leading "@", so we prepend one.
+//
+// Suffix vocabulary is explained in the report's "Status definitions"
+// footer:
+//
+//   - (CO)        — owner came from a CODEOWNERS file
+//   - (committer) — owner is the dominant author in the last 100 commits
+//
+// Any "top_committer_*" source is treated the same way so reports can be
+// regenerated against snapshots that predate the rename of "top_committer_90d"
+// to "top_committer_recent".
 func ownerLabel(r Repository) string {
 	if r.LikelyOwner == "" {
 		return "(unowned)"
 	}
-	switch r.LikelyOwnerSource {
-	case "codeowners":
+	if r.LikelyOwnerSource == "codeowners" {
 		owner := r.LikelyOwner
 		if !strings.HasPrefix(owner, "@") {
 			owner = "@" + owner
 		}
-		return fmt.Sprintf("%s (CODEOWNERS)", owner)
-	case "top_committer_90d":
-		return fmt.Sprintf("@%s (recent committer)", strings.TrimPrefix(r.LikelyOwner, "@"))
-	default:
-		return r.LikelyOwner
+		return fmt.Sprintf("%s (CO)", owner)
 	}
+	if strings.HasPrefix(r.LikelyOwnerSource, "top_committer_") {
+		return fmt.Sprintf("@%s (committer)", strings.TrimPrefix(r.LikelyOwner, "@"))
+	}
+	return r.LikelyOwner
 }
 
 // archiveHint produces the per-row triage suggestion. Forks get a dedicated
@@ -524,12 +609,14 @@ func archiveHint(r Repository, now time.Time) string {
 	return "Possibly still active — verify before archiving"
 }
 
-// migrationStatus labels a repo for the Migration Priority table. "fork"
-// overrides the active/stale distinction because a fork's compliance posture
-// often follows its upstream's rather than the org's policy.
-func migrationStatus(r Repository, staleCutoff time.Time) string {
-	if r.IsFork {
-		return "fork"
+// repoStatus returns the unified compliance lifecycle state for a repo.
+// Evaluation order matters: archived overrides everything (a repo is
+// archived even if it was very recently pushed before being archived).
+// IsFork is metadata, not a status — actively maintained forks are
+// independent software with their own compliance posture.
+func repoStatus(r Repository, staleCutoff time.Time) string {
+	if r.IsArchived {
+		return "archived"
 	}
 	if r.PushedAt.Before(staleCutoff) {
 		return "stale"
