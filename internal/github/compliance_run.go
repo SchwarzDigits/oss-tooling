@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	gogithub "github.com/google/go-github/v66/github"
@@ -28,14 +29,30 @@ type ComplianceCheckStatuses struct {
 	License     ComplianceCheck
 }
 
-const (
-	jobNameSecretsVuln = "secret-and-vuln-scan"
-	jobNameLicense     = "license-and-sbom"
+// runScanLimit is how many of the most recent runs we walk in Phase 1.
+// Bounds the worst-case API spend per repo when many runs in a row
+// skipped license-and-sbom (doc-only pushes etc.).
+const runScanLimit = 30
 
-	// runScanLimit is how many of the most recent runs we walk in Phase 1.
-	// Bounds the worst-case API spend per repo when many runs in a row
-	// skipped license-and-sbom (doc-only pushes etc.).
-	runScanLimit = 30
+// Recognized names for each real check in the central Compliance workflow.
+//
+// GitHub returns reusable-workflow job names in the format
+// "<caller-job-id> / <job-name>" — for example
+// "compliance / Secret and vulnerability scan". The caller-job-id is up to
+// the consumer; we anchor on the suffix instead. Both the display name (set
+// via `name:` in the reusable workflow yaml) and the YAML job key are
+// accepted, so renaming either in the central workflow doesn't immediately
+// break this tool. Add new variants here if the central workflow ever
+// renames a job.
+var (
+	secretsVulnJobNames = []string{
+		"Secret and vulnerability scan", // current display name
+		"secret-and-vuln-scan",          // YAML job key fallback
+	}
+	licenseJobNames = []string{
+		"License analysis and SBOM", // current display name
+		"license-and-sbom",          // YAML job key fallback
+	}
 )
 
 // GetComplianceCheckStatuses returns the latest meaningful run of each
@@ -139,11 +156,12 @@ func fillSlotsFromJobs(s *ComplianceCheckStatuses, jobs *gogithub.Jobs, runURL s
 		if j == nil {
 			continue
 		}
+		name := j.GetName()
 		var slot *ComplianceCheck
-		switch j.GetName() {
-		case jobNameSecretsVuln:
+		switch {
+		case matchesJobName(name, secretsVulnJobNames):
 			slot = &s.SecretsVuln
-		case jobNameLicense:
+		case matchesJobName(name, licenseJobNames):
 			slot = &s.License
 		default:
 			continue
@@ -157,6 +175,19 @@ func fillSlotsFromJobs(s *ComplianceCheckStatuses, jobs *gogithub.Jobs, runURL s
 		}
 		*slot = check
 	}
+}
+
+// matchesJobName reports whether name corresponds to one of the known
+// candidates, accepting both the bare candidate and the
+// "<caller-job-id> / <candidate>" form GitHub uses for reusable-workflow
+// jobs.
+func matchesJobName(name string, candidates []string) bool {
+	for _, c := range candidates {
+		if name == c || strings.HasSuffix(name, " / "+c) {
+			return true
+		}
+	}
+	return false
 }
 
 // jobToCheck maps a workflow job to a ComplianceCheck. Returns ok=false when
