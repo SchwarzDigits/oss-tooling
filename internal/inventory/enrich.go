@@ -24,15 +24,14 @@ func enrichRepo(ctx context.Context, c *gh.Clients, r *Repository) error {
 	logger := slog.Default()
 
 	if r.UsesComplianceWorkflow {
-		run, err := gh.GetLatestComplianceRun(ctx, c.REST, r.Org, r.Name)
+		checks, err := gh.GetComplianceCheckStatuses(ctx, c.REST, r.Org, r.Name)
 		if err != nil {
-			logger.Warn("compliance run lookup failed", "repo", r.FullName, "err", err)
-		} else {
-			r.LastComplianceRunAt = run.StartedAt
-			r.LastComplianceRunStatus = run.Status
-			r.LastComplianceRunConclusion = run.Conclusion
-			r.LastComplianceRunURL = run.URL
-			r.LastComplianceRunFailedJobs = run.FailedJobs
+			logger.Warn("compliance check status lookup failed", "repo", r.FullName, "err", err)
+		} else if checks != nil {
+			r.ComplianceChecks = &ComplianceChecks{
+				SecretsVuln: toModelCheck(checks.SecretsVuln),
+				License:     toModelCheck(checks.License),
+			}
 		}
 	}
 

@@ -26,26 +26,23 @@ type reportData struct {
 	HasDiff      bool
 	DiffMarkdown string
 
-	StatusComplianceAdoption string
-	StatusComplianceDelta    string
-	StatusLicense            string
-	StatusLicenseDelta       string
-	StatusFailingRuns        int
-	StatusActiveCount        int
-	StatusActiveDelta        string
-	HasActiveCountDelta      bool
-	StatusNewSincePrev       int
-	StatusArchivedSincePrev  int
+	StatusComplianceAdoption    string
+	StatusComplianceDelta       string
+	StatusLicense               string
+	StatusLicenseDelta          string
+	StatusSecretsVulnSummary    string
+	StatusLicenseChecksSummary  string
+	StatusActiveCount           int
+	StatusActiveDelta           string
+	HasActiveCountDelta         bool
+	StatusNewSincePrev          int
+	StatusArchivedSincePrev     int
 
 	Orgs   []orgRow
 	Totals totalRow
 
-	Compliance         []complianceRow
-	ComplianceCount    int
-	ComplianceGreen    int
-	ComplianceFailing  int
-	ComplianceRunning  int
-	ComplianceNeverRun int
+	Compliance      []complianceRow
+	ComplianceCount int
 
 	MissingLicensePublic []missingLicenseRow
 	MigrationPriority    []migrationPriorityRow
@@ -75,12 +72,15 @@ type totalRow struct {
 }
 
 type complianceRow struct {
-	FullName    string
-	URL         string // repo URL — currently unused in the rendered table but kept for future drill-downs
-	RunURL      string // workflow run URL; empty when the workflow has never been triggered
-	LastRunRel  string
-	StatusEmoji string
-	FailedJobs  string
+	FullName        string
+	URL             string // repo URL — currently unused in the rendered table but kept for future drill-downs
+	SecretsVulnCell string // pre-rendered markdown cell, e.g. "[✅ 2 hours ago](url)" or "– never"
+	LicenseCell     string
+
+	// Sort keys (not rendered).
+	hasFailure         bool
+	hasInProgress      bool
+	licenseCompletedAt time.Time // zero for no_run / in_progress; used as an "oldest license first" tie-break
 }
 
 type missingLicenseRow struct {
@@ -253,34 +253,57 @@ func GenerateReport(inputDir, outputPath, diffFromPath string) error {
 		}
 	}
 
+	var secretsVulnChecks, licenseChecks []ComplianceCheck
 	for _, r := range allRepos {
-		if r.UsesComplianceWorkflow {
-			row := complianceRow{
-				FullName:    r.FullName,
-				URL:         r.URL,
-				RunURL:      r.LastComplianceRunURL,
-				LastRunRel:  humanRelative(r.LastComplianceRunAt, now),
-				StatusEmoji: statusEmoji(r.LastComplianceRunStatus, r.LastComplianceRunConclusion),
-				FailedJobs:  formatFailedJobs(r.LastComplianceRunConclusion, r.LastComplianceRunFailedJobs),
-			}
-			data.Compliance = append(data.Compliance, row)
-			data.ComplianceCount++
-			switch {
-			case r.LastComplianceRunConclusion == "success":
-				data.ComplianceGreen++
-			case r.LastComplianceRunConclusion == "failure":
-				data.ComplianceFailing++
-			case r.LastComplianceRunStatus == "in_progress" || r.LastComplianceRunStatus == "queued":
-				data.ComplianceRunning++
-			default:
-				data.ComplianceNeverRun++
+		if !r.UsesComplianceWorkflow {
+			continue
+		}
+		checks := r.ComplianceChecks
+		if checks == nil {
+			// Workflow flag is set but enrichment returned no data (API
+			// failure, fixture omission). Render an empty row so the gap
+			// stays visible rather than silently dropping the repo.
+			checks = &ComplianceChecks{
+				SecretsVuln: ComplianceCheck{Status: "no_run"},
+				License:     ComplianceCheck{Status: "no_run"},
 			}
 		}
+		row := complianceRow{
+			FullName:        r.FullName,
+			URL:             r.URL,
+			SecretsVulnCell: renderCheckCell(checks.SecretsVuln, now),
+			LicenseCell:     renderCheckCell(checks.License, now),
+			hasFailure:      checks.SecretsVuln.Status == "failure" || checks.License.Status == "failure",
+			hasInProgress:   checks.SecretsVuln.Status == "in_progress" || checks.License.Status == "in_progress",
+		}
+		if checks.License.CompletedAt != nil {
+			row.licenseCompletedAt = *checks.License.CompletedAt
+		}
+		data.Compliance = append(data.Compliance, row)
+		data.ComplianceCount++
+		secretsVulnChecks = append(secretsVulnChecks, checks.SecretsVuln)
+		licenseChecks = append(licenseChecks, checks.License)
 	}
-	data.StatusFailingRuns = data.ComplianceFailing
-	sort.Slice(data.Compliance, func(i, j int) bool {
-		return data.Compliance[i].FullName < data.Compliance[j].FullName
+
+	// Sort: anything needing attention floats up. Failures > in-progress >
+	// oldest license check > alphabetical. Stable sort preserves alpha
+	// order within a tier.
+	sort.SliceStable(data.Compliance, func(i, j int) bool {
+		a, b := data.Compliance[i], data.Compliance[j]
+		if a.hasFailure != b.hasFailure {
+			return a.hasFailure
+		}
+		if a.hasInProgress != b.hasInProgress {
+			return a.hasInProgress
+		}
+		if !a.licenseCompletedAt.Equal(b.licenseCompletedAt) {
+			return a.licenseCompletedAt.Before(b.licenseCompletedAt)
+		}
+		return a.FullName < b.FullName
 	})
+
+	data.StatusSecretsVulnSummary = formatChecksSummary(secretsVulnChecks, now, false)
+	data.StatusLicenseChecksSummary = formatChecksSummary(licenseChecks, now, true)
 
 	for _, r := range allRepos {
 		if r.HasLicense || r.Visibility != "public" {
@@ -538,26 +561,110 @@ func humanRelative(t, now time.Time) string {
 	}
 }
 
-// statusEmoji translates a (status, conclusion) pair to a short emoji label.
-// "no run yet" applies when both fields are empty.
-func statusEmoji(status, conclusion string) string {
-	switch {
-	case conclusion == "success":
-		return "✅ success"
-	case conclusion == "failure":
-		return "❌ failure"
-	case status == "in_progress" || status == "queued":
-		return "⏳ in progress"
-	default:
-		return "⚪ no run yet"
+// renderCheckCell produces the per-check Markdown cell for the compliance
+// status table: a status emoji, a relative-time suffix (when known), and a
+// link to the run page (when known). "– never" is the explicit no_run
+// rendering — visually distinct from "❌ failure" so a reader doesn't
+// confuse "we didn't get a signal" with "the signal was bad".
+func renderCheckCell(c ComplianceCheck, now time.Time) string {
+	switch c.Status {
+	case "no_run":
+		return "– never"
+	case "in_progress":
+		if c.URL == "" {
+			return "⏳ in progress"
+		}
+		return fmt.Sprintf("[⏳ in progress](%s)", c.URL)
 	}
+	emoji := "✅"
+	if c.Status == "failure" {
+		emoji = "❌"
+	}
+	rel := "—"
+	if c.CompletedAt != nil {
+		rel = humanRelative(*c.CompletedAt, now)
+	}
+	if c.URL == "" {
+		return fmt.Sprintf("%s %s", emoji, rel)
+	}
+	return fmt.Sprintf("[%s %s](%s)", emoji, rel, c.URL)
 }
 
-func formatFailedJobs(conclusion string, jobs []string) string {
-	if conclusion == "success" || len(jobs) == 0 {
-		return "—"
+// formatChecksSummary renders a status-header bullet for one check kind:
+// "<n> ✅ / <m> ❌ (median age: <d>[, oldest: <d>])" — or "none yet" when
+// there are no completed checks at all. no_run and in_progress checks are
+// excluded from both counters since neither has a verdict.
+//
+// Median age spans both successful and failed checks: staleness of the
+// signal matters regardless of its verdict. The oldest-age suffix is
+// appended only for the license summary (includeOldest=true) since
+// staleness of license data is the more pressing operational concern.
+func formatChecksSummary(checks []ComplianceCheck, now time.Time, includeOldest bool) string {
+	var successes, failures int
+	var ages []time.Duration
+	for _, c := range checks {
+		switch c.Status {
+		case "success":
+			successes++
+		case "failure":
+			failures++
+		default:
+			continue
+		}
+		if c.CompletedAt != nil {
+			ages = append(ages, now.Sub(*c.CompletedAt))
+		}
 	}
-	return strings.Join(jobs, ", ")
+	if successes+failures == 0 {
+		return "none yet"
+	}
+	out := fmt.Sprintf("%d ✅ / %d ❌", successes, failures)
+	if len(ages) == 0 {
+		return out
+	}
+	sort.Slice(ages, func(i, j int) bool { return ages[i] < ages[j] })
+	median := ages[len(ages)/2]
+	out += fmt.Sprintf(" (median age: %s", humanDuration(median))
+	if includeOldest {
+		out += fmt.Sprintf(", oldest: %s", humanDuration(ages[len(ages)-1]))
+	}
+	out += ")"
+	return out
+}
+
+// humanDuration is humanRelative without the "ago" suffix — for situations
+// where the value is a span (median age, oldest age) rather than a moment
+// in time.
+func humanDuration(d time.Duration) string {
+	if d < 0 {
+		d = -d
+	}
+	switch {
+	case d < time.Hour:
+		m := int(d / time.Minute)
+		if m <= 1 {
+			return "1 minute"
+		}
+		return fmt.Sprintf("%d minutes", m)
+	case d < 24*time.Hour:
+		h := int(d / time.Hour)
+		if h == 1 {
+			return "1 hour"
+		}
+		return fmt.Sprintf("%d hours", h)
+	case d < 14*24*time.Hour:
+		days := int(d / (24 * time.Hour))
+		if days == 1 {
+			return "1 day"
+		}
+		return fmt.Sprintf("%d days", days)
+	default:
+		weeks := int(d / (7 * 24 * time.Hour))
+		if weeks == 1 {
+			return "1 week"
+		}
+		return fmt.Sprintf("%d weeks", weeks)
+	}
 }
 
 // ownerLabel renders the per-repo Likely owner cell. Missing values show as

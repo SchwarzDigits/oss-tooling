@@ -69,10 +69,18 @@ output/
 output/summary.md   # produced by `inventory report`
 ```
 
-The per-repo JSON schema gained fields for the latest compliance-workflow
-run (`last_compliance_run_*`) and a likely-owner hint (`likely_owner`,
-`likely_owner_source`). All new fields are additive and `omitempty`, so
-older snapshots remain readable; missing fields default to zero values.
+The per-repo JSON schema includes a `compliance_checks` object (with
+`secrets_vuln` and `license` sub-objects, each carrying `status`,
+`completed_at`, and `url`) and a likely-owner hint (`likely_owner`,
+`likely_owner_source`). All optional fields use `omitempty`, so older
+snapshots that predate a field still parse cleanly; missing fields
+default to zero values.
+
+Snapshots written by earlier versions of this tool used five flat
+`last_compliance_run_*` fields instead of `compliance_checks`. The
+diff command silently skips per-check transitions when one side of
+the comparison lacks `compliance_checks` — a one-time silent
+boundary on the upgrade.
 
 ### Configuration
 
@@ -119,6 +127,37 @@ stale and archived repos can't realistically be onboarded, so including
 them would understate adoption progress. The license-compliance bullet
 also surfaces the overall ratio (across all statuses), since legal
 obligation isn't excused by stale status.
+
+The central Compliance workflow has three jobs:
+`secret-and-vuln-scan`, `decide-ort`, and `license-and-sbom`. Only
+the first and third are real compliance checks; `decide-ort` is a
+routing job that decides whether ORT (the license analyzer) needs
+to run for the current trigger. Because ORT skips on doc-only
+pushes, reading just the workflow's top-level `conclusion` would
+report green when no license analysis happened — masking real
+violations. The inventory therefore tracks each check's most recent
+*meaningful* run independently (skipping `conclusion: skipped`)
+and surfaces them in separate columns of the **Compliance status**
+table.
+
+A check shows `– never` when no meaningful run has occurred within
+the lookback window — distinct from `❌ failure`. The lookback uses
+two phases: first the latest 30 runs of the Compliance workflow
+unfiltered, then (for the license check only, if still empty) one
+fallback to the most recent `event=schedule` run. The cron is the
+floor on freshness because it forces a full ORT execution every
+Sunday. For newly-onboarded repos `– never` is normal until the
+schedule fires. If a long-running repo shows `– never` for license,
+it means the cron itself is broken or `decide-ort` is failing on
+the scheduled trigger — investigate the workflow configuration.
+
+Note on terminology: the **License compliance** bullet in the
+status header tracks presence of a `LICENSE` file in each repo
+(static metadata). The **Latest license checks** bullet and the
+**License (ORT)** column in the compliance table track ORT runtime
+analysis of dependency licenses (per-run signal). They share the
+word "license" but answer different questions; both are surfaced
+because both are required for compliance.
 
 The "Likely owner" column attributes a repo first to a CODEOWNERS file
 (suffix **(CO)**) and otherwise to the dominant non-bot author in the

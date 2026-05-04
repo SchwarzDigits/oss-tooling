@@ -39,8 +39,10 @@ type Diff struct {
 	Archived   []string
 	Unarchived []string
 
-	RunFlippedToFailure []DiffEntry
-	RunFlippedToSuccess []string
+	SecretsVulnFlippedToFailure []string
+	SecretsVulnFlippedToSuccess []string
+	LicenseFlippedToFailure     []string
+	LicenseFlippedToSuccess     []string
 
 	BecameStale  []string
 	BecameActive []string
@@ -52,7 +54,8 @@ func (d Diff) IsEmpty() bool {
 		len(d.LicenseAdded) == 0 && len(d.LicenseRemoved) == 0 && len(d.LicenseChanged) == 0 &&
 		len(d.ComplianceAdded) == 0 && len(d.ComplianceRemoved) == 0 &&
 		len(d.Archived) == 0 && len(d.Unarchived) == 0 &&
-		len(d.RunFlippedToFailure) == 0 && len(d.RunFlippedToSuccess) == 0 &&
+		len(d.SecretsVulnFlippedToFailure) == 0 && len(d.SecretsVulnFlippedToSuccess) == 0 &&
+		len(d.LicenseFlippedToFailure) == 0 && len(d.LicenseFlippedToSuccess) == 0 &&
 		len(d.BecameStale) == 0 && len(d.BecameActive) == 0
 }
 
@@ -159,23 +162,19 @@ func ComputeDiff(fromRepos, toRepos []Repository, fromDate, toDate time.Time) Di
 			d.Unarchived = append(d.Unarchived, name)
 		}
 
-		if from.LastComplianceRunStatus != "" && to.LastComplianceRunStatus != "" {
-			fromOK := from.LastComplianceRunConclusion == "success"
-			toOK := to.LastComplianceRunConclusion == "success"
-			fromFail := from.LastComplianceRunConclusion == "failure"
-			toFail := to.LastComplianceRunConclusion == "failure"
-			switch {
-			case fromOK && toFail:
-				note := ""
-				if jobs := strings.Join(to.LastComplianceRunFailedJobs, ", "); jobs != "" {
-					note = "was success, failed jobs: " + jobs
-				} else {
-					note = "was success"
-				}
-				d.RunFlippedToFailure = append(d.RunFlippedToFailure, DiffEntry{FullName: name, Note: note})
-			case fromFail && toOK:
-				d.RunFlippedToSuccess = append(d.RunFlippedToSuccess, name)
-			}
+		// Per-check transitions. Compare success<->failure flips for each
+		// check kind separately. Skip entirely when either side has no
+		// ComplianceChecks (workflow appearance/disappearance is already
+		// covered by ComplianceAdded/Removed above).
+		if from.ComplianceChecks != nil && to.ComplianceChecks != nil {
+			recordCheckFlip(name,
+				from.ComplianceChecks.SecretsVuln.Status,
+				to.ComplianceChecks.SecretsVuln.Status,
+				&d.SecretsVulnFlippedToFailure, &d.SecretsVulnFlippedToSuccess)
+			recordCheckFlip(name,
+				from.ComplianceChecks.License.Status,
+				to.ComplianceChecks.License.Status,
+				&d.LicenseFlippedToFailure, &d.LicenseFlippedToSuccess)
 		}
 
 		fromStale := isStale(from)
@@ -189,6 +188,20 @@ func ComputeDiff(fromRepos, toRepos []Repository, fromDate, toDate time.Time) Di
 
 	sortDiff(&d)
 	return d
+}
+
+// recordCheckFlip appends name to the appropriate "flipped" slice when a
+// check transitioned between success and failure. Other transitions
+// (no_run -> success, in_progress -> success, etc.) are intentionally not
+// surfaced — they're noisy and the report's Compliance status section
+// already shows the current state.
+func recordCheckFlip(name, fromStatus, toStatus string, toFailure, toSuccess *[]string) {
+	switch {
+	case fromStatus == "success" && toStatus == "failure":
+		*toFailure = append(*toFailure, name)
+	case fromStatus == "failure" && toStatus == "success":
+		*toSuccess = append(*toSuccess, name)
+	}
 }
 
 // isStale mirrors the rule used by collector.go and report.go: zero commits
@@ -218,13 +231,15 @@ func sortDiff(d *Diff) {
 	sort.Strings(d.ComplianceRemoved)
 	sort.Strings(d.Archived)
 	sort.Strings(d.Unarchived)
-	sort.Strings(d.RunFlippedToSuccess)
+	sort.Strings(d.SecretsVulnFlippedToFailure)
+	sort.Strings(d.SecretsVulnFlippedToSuccess)
+	sort.Strings(d.LicenseFlippedToFailure)
+	sort.Strings(d.LicenseFlippedToSuccess)
 	sort.Strings(d.BecameStale)
 	sort.Strings(d.BecameActive)
 	sortEntries(d.LicenseAdded)
 	sortEntries(d.LicenseRemoved)
 	sortEntries(d.LicenseChanged)
-	sortEntries(d.RunFlippedToFailure)
 }
 
 func sortEntries(es []DiffEntry) {
@@ -252,8 +267,10 @@ func RenderDiffMarkdown(d Diff) string {
 	writeBullets(&b, "Compliance workflow removed", d.ComplianceRemoved)
 	writeBullets(&b, "Archived", d.Archived)
 	writeBullets(&b, "Unarchived", d.Unarchived)
-	writeEntries(&b, "Compliance run flipped to failure", d.RunFlippedToFailure)
-	writeBullets(&b, "Compliance run flipped to success", d.RunFlippedToSuccess)
+	writeBullets(&b, "Secrets/vuln check flipped to failure", d.SecretsVulnFlippedToFailure)
+	writeBullets(&b, "Secrets/vuln check flipped to success", d.SecretsVulnFlippedToSuccess)
+	writeBullets(&b, "License check flipped to failure", d.LicenseFlippedToFailure)
+	writeBullets(&b, "License check flipped to success", d.LicenseFlippedToSuccess)
 	writeBullets(&b, "Became stale", d.BecameStale)
 	writeBullets(&b, "Became active", d.BecameActive)
 	return b.String()

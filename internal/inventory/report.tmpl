@@ -3,9 +3,10 @@
 _Generated {{ .GeneratedAt.Format "2006-01-02 15:04:05 UTC" }} from `{{ .InputDir }}`._
 
 **Status:**
-- Compliance adoption: **{{ .StatusComplianceAdoption }}**{{ if .HasDiff }} — vs. previous: {{ .StatusComplianceDelta }}{{ end }}
+- Compliance workflow adoption: **{{ .StatusComplianceAdoption }}**{{ if .HasDiff }} — vs. previous: {{ .StatusComplianceDelta }}{{ end }}
 - License compliance: **{{ .StatusLicense }}**{{ if .HasDiff }} — vs. previous: {{ .StatusLicenseDelta }}{{ end }}
-- Failing compliance runs: **{{ .StatusFailingRuns }}**
+- Latest secrets/vuln checks: **{{ .StatusSecretsVulnSummary }}**
+- Latest license checks: **{{ .StatusLicenseChecksSummary }}**
 {{- if .HasActiveCountDelta }}
 - Active repo count: **{{ .StatusActiveCount }}** ({{ .StatusActiveDelta }} since previous)
 {{- end }}
@@ -30,14 +31,16 @@ _Generated {{ .GeneratedAt.Format "2006-01-02 15:04:05 UTC" }} from `{{ .InputDi
 
 ## Compliance status
 
+_Per-check status of repositories that use the central compliance workflow. Each cell links to the run in which that check last executed. Rows are sorted with any failing check first, then in-progress, then oldest license check, then alphabetical. "– never" means the check has not yet run for this repo within the lookback window — distinct from "❌ failure"._
+
 {{ if .Compliance -}}
-| Repo | Last run | Status | Failed jobs |
-|---|---|---|---|
+| Repository | Secrets/Vuln | License (ORT) |
+|---|---|---|
 {{- range .Compliance }}
-| {{ .FullName }} | {{ .LastRunRel }} | {{ if .RunURL }}[{{ .StatusEmoji }}]({{ .RunURL }}){{ else }}{{ .StatusEmoji }}{{ end }} | {{ .FailedJobs }} |
+| {{ .FullName }} | {{ .SecretsVulnCell }} | {{ .LicenseCell }} |
 {{- end }}
 
-{{ .ComplianceCount }} repos use the central compliance workflow — {{ .ComplianceGreen }} green, {{ .ComplianceFailing }} failing, {{ .ComplianceRunning }} running, {{ .ComplianceNeverRun }} never run.
+{{ .ComplianceCount }} repos use the central compliance workflow.
 {{- else -}}
 _No repositories use the central compliance workflow._
 {{- end }}
