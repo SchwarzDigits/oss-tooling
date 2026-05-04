@@ -113,27 +113,70 @@ func TestRenderDiffMarkdown_BulletsAndHeader(t *testing.T) {
 	}
 }
 
-func TestComputeDiff_RunFlippedToFailureIncludesJobs(t *testing.T) {
+// Per-check transitions are tracked separately so the diff text can name
+// which check broke. Transitioning the license slot from success to failure
+// while secrets/vuln stays green should bucket only into LicenseFlippedToFailure.
+func TestComputeDiff_PerCheckFlips(t *testing.T) {
 	t.Parallel()
 
 	from := []Repository{{
-		FullName:                  "Org/alpha",
-		LastComplianceRunStatus:   "completed",
-		LastComplianceRunConclusion: "success",
+		FullName: "Org/alpha",
+		ComplianceChecks: &ComplianceChecks{
+			SecretsVuln: ComplianceCheck{Status: "success"},
+			License:     ComplianceCheck{Status: "success"},
+		},
 	}}
 	to := []Repository{{
-		FullName:                    "Org/alpha",
-		LastComplianceRunStatus:     "completed",
-		LastComplianceRunConclusion: "failure",
-		LastComplianceRunFailedJobs: []string{"license-and-sbom"},
+		FullName: "Org/alpha",
+		ComplianceChecks: &ComplianceChecks{
+			SecretsVuln: ComplianceCheck{Status: "success"},
+			License:     ComplianceCheck{Status: "failure"},
+		},
 	}}
 
 	d := ComputeDiff(from, to, time.Time{}, time.Time{})
-	if len(d.RunFlippedToFailure) != 1 {
-		t.Fatalf("RunFlippedToFailure = %v, want 1 entry", d.RunFlippedToFailure)
+	if got := d.LicenseFlippedToFailure; len(got) != 1 || got[0] != "Org/alpha" {
+		t.Errorf("LicenseFlippedToFailure = %v, want [Org/alpha]", got)
 	}
-	got := d.RunFlippedToFailure[0]
-	if got.FullName != "Org/alpha" || !strings.Contains(got.Note, "license-and-sbom") {
-		t.Errorf("entry = %+v, want failed jobs noted", got)
+	if len(d.SecretsVulnFlippedToFailure) != 0 {
+		t.Errorf("SecretsVulnFlippedToFailure = %v, want []", d.SecretsVulnFlippedToFailure)
+	}
+	if len(d.LicenseFlippedToSuccess) != 0 {
+		t.Errorf("LicenseFlippedToSuccess = %v, want []", d.LicenseFlippedToSuccess)
+	}
+
+	// Now flip back to success on a follow-up snapshot.
+	to2 := []Repository{{
+		FullName: "Org/alpha",
+		ComplianceChecks: &ComplianceChecks{
+			SecretsVuln: ComplianceCheck{Status: "success"},
+			License:     ComplianceCheck{Status: "success"},
+		},
+	}}
+	d2 := ComputeDiff(to, to2, time.Time{}, time.Time{})
+	if got := d2.LicenseFlippedToSuccess; len(got) != 1 || got[0] != "Org/alpha" {
+		t.Errorf("LicenseFlippedToSuccess = %v, want [Org/alpha]", got)
+	}
+}
+
+// When one side has no ComplianceChecks (pre-change snapshot or workflow
+// just appeared/disappeared), per-check comparisons must be skipped — the
+// workflow-adoption signal already covers the transition and we don't want
+// noisy "flipped" entries straddling the schema-shape boundary.
+func TestComputeDiff_NilComplianceChecksSkipsPerCheckFlips(t *testing.T) {
+	t.Parallel()
+
+	from := []Repository{{FullName: "Org/alpha"}} // ComplianceChecks nil
+	to := []Repository{{
+		FullName: "Org/alpha",
+		ComplianceChecks: &ComplianceChecks{
+			SecretsVuln: ComplianceCheck{Status: "failure"},
+			License:     ComplianceCheck{Status: "failure"},
+		},
+	}}
+
+	d := ComputeDiff(from, to, time.Time{}, time.Time{})
+	if len(d.SecretsVulnFlippedToFailure)+len(d.LicenseFlippedToFailure) != 0 {
+		t.Errorf("expected no per-check flips when one side is nil, got %+v", d)
 	}
 }

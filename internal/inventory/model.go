@@ -1,6 +1,10 @@
 package inventory
 
-import "time"
+import (
+	"time"
+
+	gh "github.com/SchwarzDigits/oss-tooling/internal/github"
+)
 
 // SchemaVersion is the on-disk format version. Increment when the JSON shape
 // changes in a way readers must branch on.
@@ -60,14 +64,43 @@ type Repository struct {
 
 	CollectedAt time.Time `json:"collected_at"`
 
-	LastComplianceRunAt         time.Time `json:"last_compliance_run_at,omitempty"`
-	LastComplianceRunStatus     string    `json:"last_compliance_run_status,omitempty"`
-	LastComplianceRunConclusion string    `json:"last_compliance_run_conclusion,omitempty"`
-	LastComplianceRunURL        string    `json:"last_compliance_run_url,omitempty"`
-	LastComplianceRunFailedJobs []string  `json:"last_compliance_run_failed_jobs,omitempty"`
+	ComplianceChecks *ComplianceChecks `json:"compliance_checks,omitempty"`
 
 	LikelyOwner       string `json:"likely_owner,omitempty"`
 	LikelyOwnerSource string `json:"likely_owner_source,omitempty"`
+}
+
+// ComplianceChecks splits the central Compliance workflow's two real checks
+// (secret-and-vuln-scan, license-and-sbom) so each can be tracked independently.
+// The decide-ort routing job is intentionally not represented — its conclusion
+// has no compliance meaning. Nil at the Repository level distinguishes "repo
+// doesn't have the workflow" from "workflow exists but the check hasn't yet
+// run" (which uses Status: "no_run" per check).
+type ComplianceChecks struct {
+	SecretsVuln ComplianceCheck `json:"secrets_vuln"`
+	License     ComplianceCheck `json:"license"`
+}
+
+// ComplianceCheck is one check's most recent meaningful execution. "Meaningful"
+// means the job actually ran (conclusion != "skipped"). Status "no_run"
+// indicates that within the lookback window no such run was found — distinct
+// from "failure".
+type ComplianceCheck struct {
+	Status      string     `json:"status"` // success | failure | in_progress | no_run
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	URL         string     `json:"url,omitempty"`
+}
+
+// toModelCheck converts a fetcher-side ComplianceCheck (in the github package)
+// to the inventory-model representation. The two types are intentionally
+// separate so the github package doesn't depend on inventory; this thin
+// adapter is the only conversion site.
+func toModelCheck(c gh.ComplianceCheck) ComplianceCheck {
+	return ComplianceCheck{
+		Status:      c.Status,
+		CompletedAt: c.CompletedAt,
+		URL:         c.URL,
+	}
 }
 
 // OrgInventory is the on-disk wrapper for a single org's collected data.

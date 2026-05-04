@@ -41,10 +41,18 @@
       "active_contributors_90d": 3,
       "manifests": ["go.mod"],
       "collected_at": "2026-05-01T00:00:00Z",
-      "last_compliance_run_at": "2026-04-30T18:00:00Z",
-      "last_compliance_run_status": "completed",
-      "last_compliance_run_conclusion": "success",
-      "last_compliance_run_url": "https://github.com/SchwarzDigits/oss-tooling/actions/runs/100",
+      "compliance_checks": {
+        "secrets_vuln": {
+          "status": "success",
+          "completed_at": "2026-04-30T18:00:00Z",
+          "url": "https://github.com/SchwarzDigits/oss-tooling/actions/runs/100"
+        },
+        "license": {
+          "status": "success",
+          "completed_at": "2026-04-28T06:00:00Z",
+          "url": "https://github.com/SchwarzDigits/oss-tooling/actions/runs/95"
+        }
+      },
       "likely_owner": "@platform-team",
       "likely_owner_source": "codeowners"
     },
@@ -86,11 +94,18 @@
       "active_contributors_90d": 1,
       "manifests": ["pyproject.toml"],
       "collected_at": "2026-05-01T00:00:00Z",
-      "last_compliance_run_at": "2026-04-29T12:00:00Z",
-      "last_compliance_run_status": "completed",
-      "last_compliance_run_conclusion": "failure",
-      "last_compliance_run_url": "https://github.com/SchwarzDigits/compliance-but-no-security/actions/runs/55",
-      "last_compliance_run_failed_jobs": ["license-and-sbom"],
+      "compliance_checks": {
+        "secrets_vuln": {
+          "status": "success",
+          "completed_at": "2026-04-29T12:00:00Z",
+          "url": "https://github.com/SchwarzDigits/compliance-but-no-security/actions/runs/56"
+        },
+        "license": {
+          "status": "failure",
+          "completed_at": "2026-04-22T12:00:00Z",
+          "url": "https://github.com/SchwarzDigits/compliance-but-no-security/actions/runs/55"
+        }
+      },
       "likely_owner": "alice",
       "likely_owner_source": "top_committer_recent"
     },

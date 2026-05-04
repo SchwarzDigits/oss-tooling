@@ -65,13 +65,33 @@ func TestGenerateReport_FromFixtures(t *testing.T) {
 	mustContain(t, got, "| SchwarzIT |")
 	mustContain(t, got, "| **All** |")
 
-	// Compliance run statuses are reflected in the table, and the status
-	// cell links to the actual run URL when one is present.
-	mustContain(t, got, "✅ success")
-	mustContain(t, got, "❌ failure")
-	mustContain(t, got, "license-and-sbom")
-	mustContain(t, got, "[❌ failure](https://github.com/SchwarzDigits/compliance-but-no-security/actions/runs/55)")
-	mustContain(t, got, "[✅ success](https://github.com/SchwarzDigits/oss-tooling/actions/runs/100)")
+	// Compliance status table is per-check: each row has a Secrets/Vuln
+	// cell and a License (ORT) cell. Each non-no_run cell links to the
+	// run in which that check executed.
+	mustContain(t, got, "| Repository | Secrets/Vuln | License (ORT) |")
+	mustContain(t, got, "| SchwarzDigits/compliance-but-no-security |")
+	mustContain(t, got, "https://github.com/SchwarzDigits/oss-tooling/actions/runs/100")
+	mustContain(t, got, "https://github.com/SchwarzDigits/compliance-but-no-security/actions/runs/55")
+
+	// The compliance-but-no-security row is the natrium failure case:
+	// secrets/vuln green and license red on the same row. Walking the
+	// rendered row text confirms both signals make it through.
+	cbnsRow := sliceBetween(got, "| SchwarzDigits/compliance-but-no-security |", "\n")
+	if !strings.Contains(cbnsRow, "✅") || !strings.Contains(cbnsRow, "❌") {
+		t.Errorf("compliance-but-no-security row should show green secrets/vuln and red license, got: %q", cbnsRow)
+	}
+
+	// no_run is rendered as "– never" — distinct from "❌ failure". The
+	// SchwarzIT/newly-onboarded fixture exercises this case.
+	mustContain(t, got, "– never")
+	mustContain(t, got, "SchwarzIT/newly-onboarded")
+
+	// New status-header bullets surface the per-check rollups.
+	mustContain(t, got, "Latest secrets/vuln checks:")
+	mustContain(t, got, "Latest license checks:")
+	mustContain(t, got, "Compliance workflow adoption:")
+	// Old "Failing compliance runs" bullet is gone.
+	mustNotContain(t, got, "Failing compliance runs:")
 
 	// Owner labels render with their (short) source suffix; both
 	// CODEOWNERS-sourced and committer-sourced rows appear in the fixtures.
@@ -164,6 +184,63 @@ func TestArchiveHint(t *testing.T) {
 			got := archiveHint(tc.repo, now)
 			if got != tc.want {
 				t.Errorf("archiveHint(%+v, %v) = %q, want %q", tc.repo, now, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRenderCheckCell covers the four status branches plus the
+// missing-URL and missing-CompletedAt edges so a rendering regression
+// in any branch surfaces here rather than only in the integration test.
+func TestRenderCheckCell(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	twoHoursAgo := now.Add(-2 * time.Hour)
+
+	cases := []struct {
+		name string
+		c    ComplianceCheck
+		want string
+	}{
+		{
+			name: "success with URL renders as linked emoji + relative time",
+			c:    ComplianceCheck{Status: "success", CompletedAt: &twoHoursAgo, URL: "https://example/run/1"},
+			want: "[✅ 2 hours ago](https://example/run/1)",
+		},
+		{
+			name: "failure with URL renders as linked red emoji + relative time",
+			c:    ComplianceCheck{Status: "failure", CompletedAt: &twoHoursAgo, URL: "https://example/run/2"},
+			want: "[❌ 2 hours ago](https://example/run/2)",
+		},
+		{
+			name: "in_progress with URL is a linked hourglass",
+			c:    ComplianceCheck{Status: "in_progress", URL: "https://example/run/3"},
+			want: "[⏳ in progress](https://example/run/3)",
+		},
+		{
+			name: "in_progress without URL is unlinked",
+			c:    ComplianceCheck{Status: "in_progress"},
+			want: "⏳ in progress",
+		},
+		{
+			name: "no_run is the bare em-dash phrase, no link",
+			c:    ComplianceCheck{Status: "no_run"},
+			want: "– never",
+		},
+		{
+			name: "success with nil CompletedAt falls back to em dash",
+			c:    ComplianceCheck{Status: "success", URL: "https://example/run/4"},
+			want: "[✅ —](https://example/run/4)",
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := renderCheckCell(tc.c, now)
+			if got != tc.want {
+				t.Errorf("renderCheckCell = %q, want %q", got, tc.want)
 			}
 		})
 	}
