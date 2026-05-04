@@ -24,7 +24,7 @@ func enrichRepo(ctx context.Context, c *gh.Clients, r *Repository) error {
 	logger := slog.Default()
 
 	if r.UsesComplianceWorkflow {
-		checks, err := gh.GetComplianceCheckStatuses(ctx, c.REST, r.Org, r.Name)
+		checks, err := gh.GetComplianceCheckStatuses(ctx, c.REST, r.Org, r.Name, r.ComplianceWorkflowFile)
 		if err != nil {
 			logger.Warn("compliance check status lookup failed", "repo", r.FullName, "err", err)
 		} else if checks != nil {
