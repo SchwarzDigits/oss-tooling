@@ -29,9 +29,8 @@ type ComplianceCheckStatuses struct {
 }
 
 const (
-	complianceWorkflowPath = ".github/workflows/compliance.yml"
-	jobNameSecretsVuln     = "secret-and-vuln-scan"
-	jobNameLicense         = "license-and-sbom"
+	jobNameSecretsVuln = "secret-and-vuln-scan"
+	jobNameLicense     = "license-and-sbom"
 
 	// runScanLimit is how many of the most recent runs we walk in Phase 1.
 	// Bounds the worst-case API spend per repo when many runs in a row
@@ -42,10 +41,15 @@ const (
 // GetComplianceCheckStatuses returns the latest meaningful run of each
 // real check in the central Compliance workflow.
 //
-// If the workflow file is not present in the repo, returns (nil, nil) —
-// the absence of the workflow is a valid state distinct from a check-level
-// "no_run". Per-check status "no_run" means no meaningful execution was
-// found in the lookback window (defined below).
+// workflowFile is the consumer's caller workflow file path relative to the
+// repo root (e.g. ".github/workflows/oss-compliance.yml"). The caller's
+// filename is up to the consumer — repos that adopt the central reusable
+// workflow can name their wrapper anything — so we can't hardcode it.
+// An empty string returns (nil, nil), as does the file not being a
+// registered workflow in the repo.
+//
+// Per-check status "no_run" means no meaningful execution was found in the
+// lookback window (defined below).
 //
 // Lookback is two-phase to balance API cost against accuracy on hot repos
 // that flood the recent run list with doc-only pushes (all of which skip
@@ -59,11 +63,12 @@ const (
 //     ORT execution) and try to fill the license slot from there. Phase 2
 //     is not invoked for SecretsVuln; that job runs on every trigger.
 //
-// Errors are returned only for genuine API failures. The workflow not being
-// registered in the repo returns (nil, nil); empty run lists fall through
-// to "no_run" cleanly.
-func GetComplianceCheckStatuses(ctx context.Context, c *gogithub.Client, owner, repo string) (*ComplianceCheckStatuses, error) {
-	workflowID, err := findComplianceWorkflowID(ctx, c, owner, repo)
+// Errors are returned only for genuine API failures.
+func GetComplianceCheckStatuses(ctx context.Context, c *gogithub.Client, owner, repo, workflowFile string) (*ComplianceCheckStatuses, error) {
+	if workflowFile == "" {
+		return nil, nil
+	}
+	workflowID, err := findWorkflowIDByPath(ctx, c, owner, repo, workflowFile)
 	if err != nil {
 		return nil, err
 	}
@@ -221,9 +226,10 @@ func listWorkflowJobs(ctx context.Context, c *gogithub.Client, owner, repo strin
 	})
 }
 
-// findComplianceWorkflowID returns the numeric workflow ID for the file at
-// .github/workflows/compliance.yml, or 0 if no such file is registered.
-func findComplianceWorkflowID(ctx context.Context, c *gogithub.Client, owner, repo string) (int64, error) {
+// findWorkflowIDByPath returns the numeric workflow ID for the workflow file
+// at the given repo-relative path (e.g. ".github/workflows/foo.yml"), or 0
+// if no such file is a registered workflow in the repo.
+func findWorkflowIDByPath(ctx context.Context, c *gogithub.Client, owner, repo, path string) (int64, error) {
 	opt := &gogithub.ListOptions{PerPage: 100}
 	for {
 		var nextPage int
@@ -245,7 +251,7 @@ func findComplianceWorkflowID(ctx context.Context, c *gogithub.Client, owner, re
 			return 0, nil
 		}
 		for _, wf := range page.Workflows {
-			if wf.GetPath() == complianceWorkflowPath && wf.ID != nil {
+			if wf.GetPath() == path && wf.ID != nil {
 				return *wf.ID, nil
 			}
 		}

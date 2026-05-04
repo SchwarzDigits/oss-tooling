@@ -160,12 +160,18 @@ func translateNode(n gh.OrgRepoNode, org string, now time.Time) Repository {
 	}
 	r.HasLicense = hasLicenseFile || n.LicenseInfo.SpdxID != ""
 
-	// Workflows tree: file names + compliance-workflow detection.
+	// Workflows tree: file names + compliance-workflow detection. The first
+	// matching file wins for ComplianceWorkflowFile; subsequent matches are
+	// rare in practice (repos don't usually wire two callers to the same
+	// reusable workflow) and the first-match behavior is deterministic.
 	for _, e := range n.Workflows.Tree.Entries {
 		r.WorkflowFiles = append(r.WorkflowFiles, e.Name)
 		if !e.Object.Blob.IsBinary && e.Object.Blob.Text != "" {
 			if complianceWorkflowRE.MatchString(e.Object.Blob.Text) {
 				r.UsesComplianceWorkflow = true
+				if r.ComplianceWorkflowFile == "" {
+					r.ComplianceWorkflowFile = ".github/workflows/" + e.Name
+				}
 			}
 		}
 	}

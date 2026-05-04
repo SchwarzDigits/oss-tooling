@@ -50,6 +50,14 @@ type Repository struct {
 	HasGithubWorkflows     bool     `json:"has_github_workflows"`
 	WorkflowFiles          []string `json:"workflow_files"`
 	UsesComplianceWorkflow bool     `json:"uses_compliance_workflow"`
+	// ComplianceWorkflowFile is the consumer-side workflow file (relative
+	// to the repo root, e.g. ".github/workflows/oss-compliance.yml") whose
+	// jobs we read for ComplianceChecks. Set during collection from the
+	// first workflow file whose body matches complianceWorkflowRE; empty
+	// when UsesComplianceWorkflow is false. Required because the caller's
+	// filename is not necessarily "compliance.yml" — repos can name their
+	// caller workflow anything.
+	ComplianceWorkflowFile string `json:"compliance_workflow_file,omitempty"`
 
 	DefaultBranchProtected bool   `json:"default_branch_protected"`
 	BranchProtectionError  string `json:"branch_protection_error,omitempty"`
